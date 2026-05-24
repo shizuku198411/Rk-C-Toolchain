@@ -9,7 +9,7 @@ def toolchain_tests(TestCase):
         ".entry _start\n"
         "_start:\n"
         "  la a0, message\n"
-        "  li a1, 16\n"
+        "  li a1, 17\n"
         "  li a3, 1\n"
         "  ecall\n"
         "  li a0, 0\n"
@@ -17,7 +17,7 @@ def toolchain_tests(TestCase):
         "  ecall\n"
         ".rodata\n"
         "message:\n"
-        "  .asciz \"hello from rkas\\n\"\n"
+        "  .asciz \"hello from rkas!\\n\"\n"
         ".data\n"
         "seed:\n"
         "  .byte 0x2a\n"
@@ -94,7 +94,7 @@ def toolchain_tests(TestCase):
             ],
         ),
         TestCase("resolver finds assembled image", "which hello", ["/home/rkc/bin/hello"]),
-        TestCase("execute assembled image", "hello", ["hello from rkas"]),
+        TestCase("execute assembled image", "hello", regex=[r"hello from rkas!\r?\n"]),
         TestCase("remove assembled image", "rm /home/rkc/bin/hello", []),
         TestCase("remove assembly source", "rm /home/rkc/src/hello.s", []),
     ]

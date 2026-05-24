@@ -34,7 +34,7 @@ constants and expands to one or two instructions as needed.
 .entry _start
 _start:
   la a0, message
-  li a1, 16
+  li a1, 17
   li a3, 1
   ecall
   li a0, 0
@@ -43,5 +43,9 @@ _start:
 
 .rodata
 message:
-  .asciz "hello from rkas\n"
+  .asciz "hello from rkas!\n"
 ```
+
+`SysWrite` receives the byte length in `a1`. The newline escape is emitted as
+one byte by `.asciz`, so the example passes `17` for the 16 printable
+characters plus the trailing newline. The terminating zero byte is not written.
