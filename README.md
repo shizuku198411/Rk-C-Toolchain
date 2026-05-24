@@ -40,6 +40,34 @@ The currently available hosted workflow is:
 
 ```sh
 edit /home/rkc/src/hello.s
+
+## write in assembly ##
+.text
+.entry _start
+
+_start:
+  la a0, message
+  li a1, 17
+  li a3, 1
+  ecall
+
+  li a0, 0
+  li a3, 5
+  ecall
+
+.rodata
+message:
+  .asciz "hello from rkas!\n"
+
+.data
+seed:
+  .byte 0x2a
+
+.bss
+scratch:
+  .zero 16
+#######################
+
 rkas /home/rkc/src/hello.s -o /home/rkc/bin/hello
 rkxinfo /home/rkc/bin/hello
 hello
