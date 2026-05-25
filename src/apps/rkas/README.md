@@ -1,20 +1,21 @@
 # rkas
 
 `rkas` is the initial Rk-C hosted RV64 assembler. It consumes assembly source
-from the writable filesystem and uses the shared RKX writer to emit an
-unprivileged runnable executable.
+from the writable filesystem and emits either an unprivileged runnable RKX
+application or a relocatable RKO object for `rkld`.
 
 ## Usage
 
 ```text
 rkas <source.s> -o <output.rkx>
+rkas -c <source.s> -o <output.rko>
 ```
 
 ## Supported Syntax
 
 ```text
 sections:    .text .rodata .data .bss
-directives:  .entry .byte .asciz .zero
+directives:  .entry .global .byte .asciz .zero
 labels:      name:
 
 instructions:
@@ -34,6 +35,10 @@ instructions as needed.
 The multiplication and division operations use the RV64M extension. Programs
 generated through the hosted toolchain therefore target the Rk-C RV64IM
 runtime baseline.
+
+When producing RKO objects, labels are local to the object by default. A
+definition intended to satisfy references from other objects must be exported
+with `.global <label>`.
 
 ## Example
 

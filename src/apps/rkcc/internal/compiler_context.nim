@@ -47,6 +47,7 @@ type
     nextLabel*: U32
     scratchDepth*: U32
     sawReturn*: bool
+    useStdlib*: bool
 
 
 ## Copies one identifier token into stable local storage.
@@ -174,6 +175,15 @@ proc tokenIsName*(token: var Token, name: cstring): bool =
 proc emitSyscall*(parser: var Parser, number: I64): CompileStatus =
   if not emitNumberLine(parser.text, cstring("  li a3, "), number) or
       not emitLine(parser.text, cstring("  ecall")):
+    return CcOutputTooLarge
+  CcOk
+
+
+## Emits a linker-resolved call to one userspace library routine.
+proc emitCall*(parser: var Parser, name: cstring): CompileStatus =
+  if not parser.text.appendText(cstring("  call ")) or
+      not parser.text.appendText(name) or
+      not parser.text.appendNewline():
     return CcOutputTooLarge
   CcOk
 

@@ -1,8 +1,9 @@
 # libc-mini
 
 `libc-mini` defines the first small programming surface usable by programs
-built with Rk-C Toolchain. Until relocatable objects and `rkld` are available,
-`rkcc` lowers these function calls directly to the stable Rk-C syscall ABI.
+built with Rk-C Toolchain. Although RKO objects and `rkld` are now available, a linkable libc object is
+not yet emitted; `rkcc` currently lowers these calls directly to the stable
+Rk-C syscall ABI.
 
 ## Builtin Surface
 

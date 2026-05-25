@@ -1,17 +1,18 @@
 ## Parses the hosted rkas syntax and emits classified sections through RKX writer inputs.
 from lib/types import I64, PageSize, U8, U32, U64, alignUp
 from user/lib/core/strutils import isSpace
+import lib/rko_format/rko
 import lib/rkx_writer/rkx_writer
 import ./encoder
 
 
 const
-  SectionCapacity = 16384
+  SectionCapacity = RkoSectionCapacity
   LineCapacity = 192
   TokenCapacity = 8
   TokenLength = 40
-  LabelCapacity = 64
-  RelocationCapacity = 128
+  LabelCapacity = RkoSymbolCapacity
+  RelocationCapacity = RkoRelocationCapacity
 
 
 type
@@ -50,6 +51,7 @@ type
     name: array[TokenLength, char]
     section: SectionKind
     offset: U32
+    visibility: U32
 
   RelocationEntry = object
     name: array[TokenLength, char]
@@ -71,6 +73,8 @@ type
     bssLen: U32
     labels: array[LabelCapacity, LabelEntry]
     labelCount: U32
+    globals: array[LabelCapacity, array[TokenLength, char]]
+    globalCount: U32
     relocations: array[RelocationCapacity, RelocationEntry]
     relocationCount: U32
     entryName: array[TokenLength, char]
@@ -123,6 +127,24 @@ proc sectionBase(section: SectionKind): U64 =
   of SectionBss:
     sectionBase(SectionData) + alignUp(U64(state.dataLen), PageSize)
   else: U64(0)
+
+
+## Maps the assembler's active section enum to the serialized RKO selector.
+proc objectSection(section: SectionKind): U32 =
+  case section
+  of SectionText: RkoSectionText
+  of SectionRodata: RkoSectionRodata
+  of SectionData: RkoSectionData
+  of SectionBss: RkoSectionBss
+  else: RkoSectionNone
+
+
+## Maps assembler relocation forms to their serialized RKO selectors.
+proc objectRelocation(kind: RelocationKind): U32 =
+  case kind
+  of RelocLa: RkoRelocLa
+  of RelocBranch: RkoRelocBranch
+  of RelocJump: RkoRelocJump
 
 
 ## Appends a byte to the current file-backed section or reserves one BSS byte.
@@ -273,7 +295,36 @@ proc addLabel(name: cstring): AsmStatus =
     return AsmSyntaxError
   state.labels[state.labelCount].section = state.section
   state.labels[state.labelCount].offset = currentOffset()
+  state.labels[state.labelCount].visibility = RkoSymbolLocal
+  i = U32(0)
+  while i < state.globalCount:
+    if sameName(state.globals[i], name):
+      state.labels[state.labelCount].visibility = RkoSymbolGlobal
+      break
+    inc i
   inc state.labelCount
+  AsmOk
+
+
+## Marks one label for publication to other relocatable objects.
+proc addGlobal(name: cstring): AsmStatus =
+  var i = U32(0)
+  while i < state.globalCount:
+    if sameName(state.globals[i], name):
+      return AsmOk
+    inc i
+  if state.globalCount >= U32(LabelCapacity):
+    return AsmTooManyLabels
+  if not copyName(state.globals[state.globalCount], name):
+    return AsmSyntaxError
+  inc state.globalCount
+
+  i = U32(0)
+  while i < state.labelCount:
+    if sameName(state.labels[i].name, name):
+      state.labels[i].visibility = RkoSymbolGlobal
+      break
+    inc i
   AsmOk
 
 
@@ -641,6 +692,8 @@ proc parseLine(line: cstring): AsmStatus =
       return AsmSyntaxError
     state.hasEntry = true
     return AsmOk
+  if tokenIs(tokens[0], cstring(".global")) and count == U32(2):
+    return addGlobal(cast[cstring](addr tokens[1][0]))
 
   if first[0] == '.':
     return emitDataDirective(line, tokens, count)
@@ -679,9 +732,8 @@ proc applyRelocations(): AsmStatus =
   AsmOk
 
 
-## Parses source text and returns an RKX writer image descriptor backed by assembler buffers.
-proc assembleSource*(source: ptr UncheckedArray[char], size: U32,
-                     image: var RkxImageInput): AsmStatus =
+## Parses source text into assembler state without requiring final symbol resolution.
+proc parseSource(source: ptr UncheckedArray[char], size: U32): AsmStatus =
   state = AsmState()
   var line: array[LineCapacity, char]
   var position = U32(0)
@@ -702,6 +754,16 @@ proc assembleSource*(source: ptr UncheckedArray[char], size: U32,
     let status = parseLine(cast[cstring](addr line[0]))
     if status != AsmOk:
       return status
+
+  AsmOk
+
+
+## Parses source text and returns an RKX writer image descriptor backed by assembler buffers.
+proc assembleSource*(source: ptr UncheckedArray[char], size: U32,
+                     image: var RkxImageInput): AsmStatus =
+  let parseStatus = parseSource(source, size)
+  if parseStatus != AsmOk:
+    return parseStatus
 
   if not state.hasEntry:
     return AsmMissingEntry
@@ -742,6 +804,59 @@ proc assembleSource*(source: ptr UncheckedArray[char], size: U32,
   if validateRkxImage(image) != RkxWriterOk:
     return AsmInvalidImage
 
+  AsmOk
+
+
+## Parses source text into an RKO object while preserving symbol relocations.
+proc assembleObject*(source: ptr UncheckedArray[char], size: U32,
+                     obj: var RkoObject): AsmStatus =
+  let parseStatus = parseSource(source, size)
+  if parseStatus != AsmOk:
+    return parseStatus
+
+  obj = RkoObject()
+  obj.textSize = state.textLen
+  obj.rodataSize = state.rodataLen
+  obj.dataSize = state.dataLen
+  obj.bssSize = state.bssLen
+  obj.symbolCount = state.labelCount
+  obj.relocationCount = state.relocationCount
+  obj.hasEntry = state.hasEntry
+  obj.entryName = state.entryName
+
+  var i = U32(0)
+  while i < state.textLen:
+    obj.text[i] = state.text[i]
+    inc i
+  i = U32(0)
+  while i < state.rodataLen:
+    obj.rodata[i] = state.rodata[i]
+    inc i
+  i = U32(0)
+  while i < state.dataLen:
+    obj.data[i] = state.data[i]
+    inc i
+  i = U32(0)
+  while i < state.labelCount:
+    obj.symbols[i].name = state.labels[i].name
+    obj.symbols[i].section = objectSection(state.labels[i].section)
+    obj.symbols[i].offset = state.labels[i].offset
+    obj.symbols[i].visibility = state.labels[i].visibility
+    inc i
+  i = U32(0)
+  while i < state.relocationCount:
+    obj.relocations[i].name = state.relocations[i].name
+    obj.relocations[i].kind = objectRelocation(state.relocations[i].kind)
+    obj.relocations[i].section = RkoSectionText
+    obj.relocations[i].offset = state.relocations[i].offset
+    obj.relocations[i].rd = state.relocations[i].rd
+    obj.relocations[i].rs1 = state.relocations[i].rs1
+    obj.relocations[i].rs2 = state.relocations[i].rs2
+    obj.relocations[i].funct3 = state.relocations[i].funct3
+    inc i
+
+  if validateRkoObject(obj) != RkoOk:
+    return AsmInvalidImage
   AsmOk
 
 

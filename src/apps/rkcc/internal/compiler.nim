@@ -11,11 +11,13 @@ export compiler_context
 
 ## Compiles one `int main()` translation unit into bounded rkas source text.
 proc compileSource*(source: ptr UncheckedArray[char], size: U32,
-                    output: var AsmOutput): CompileStatus =
+                    output: var AsmOutput,
+                    useStdlib: bool = false): CompileStatus =
   var parser: Parser
   parser.lexer.initLexer(source, size)
   parser.text.initAsmOutput()
   parser.rodata.initAsmOutput()
+  parser.useStdlib = useStdlib
 
   if not parser.text.emitLine(cstring(".text")) or
       not parser.text.emitLine(cstring(".entry _start")) or

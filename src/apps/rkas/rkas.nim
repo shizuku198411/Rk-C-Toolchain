@@ -6,6 +6,7 @@ from user/lib/core/pathutils import PathMax, resolvePathInto
 from user/lib/core/strutils import cstringEq
 from user/lib/core/syscall import SysOpenRead, sysChmod, sysClose, sysExit,
   sysOpen, sysReadFd
+import lib/rko_format/rko
 import lib/rkx_writer/rkx_writer
 import ./internal/assembler
 
@@ -20,13 +21,15 @@ var
   sourcePath: array[PathMax, char]
   outputPath: array[PathMax, char]
   sourceText: array[SourceCapacity, char]
+  objectOutput: RkoObject
 
 
 ## Prints rkas command usage and the hosted assembly syntax surface.
 proc printUsage() =
   write("usage: rkas <source.s> -o <output.rkx>\n")
+  write("       rkas -c <source.s> -o <output.rko>\n")
   write("sections: .text .rodata .data .bss\n")
-  write("directives: .entry .byte .asciz .zero\n")
+  write("directives: .entry .global .byte .asciz .zero\n")
   write("integer: add sub mul div rem and or xor slt sltu shifts\n")
   write("branch: beq bne blt bge bltu bgeu\n")
 
@@ -80,7 +83,7 @@ proc reportFailure(prefix, detail: cstring) =
   write("\n")
 
 
-## Parses command paths, assembles the source, and writes an executable RKX image.
+## Parses command paths and writes either a relocatable RKO or executable RKX image.
 proc user_start*(arg: cstring) {.exportc, cdecl, noreturn.} =
   if not parseUserArgs(arg, parsedArgs):
     printUsage()
@@ -90,13 +93,18 @@ proc user_start*(arg: cstring) {.exportc, cdecl, noreturn.} =
     printUsage()
     sysExit(0)
 
-  if parsedArgs.argc != U32(3) or
-      not cstringEq(argAt(parsedArgs, U32(1)), cstring("-o")):
+  let compileOnly = parsedArgs.argc == U32(4) and
+    cstringEq(argAt(parsedArgs, U32(0)), cstring("-c")) and
+    cstringEq(argAt(parsedArgs, U32(2)), cstring("-o"))
+  let executable = parsedArgs.argc == U32(3) and
+    cstringEq(argAt(parsedArgs, U32(1)), cstring("-o"))
+  if not compileOnly and not executable:
     printUsage()
     sysExit(1)
 
-  if not storePath(argAt(parsedArgs, U32(0)), sourcePath) or
-      not storePath(argAt(parsedArgs, U32(2)), outputPath):
+  let sourceArg = if compileOnly: argAt(parsedArgs, U32(1)) else: argAt(parsedArgs, U32(0))
+  let outputArg = if compileOnly: argAt(parsedArgs, U32(3)) else: argAt(parsedArgs, U32(2))
+  if not storePath(sourceArg, sourcePath) or not storePath(outputArg, outputPath):
     write("rkas: path too long\n")
     sysExit(1)
 
@@ -104,6 +112,24 @@ proc user_start*(arg: cstring) {.exportc, cdecl, noreturn.} =
   if not readSource(cast[cstring](addr sourcePath[0]), sourceSize):
     write("rkas: failed to read source\n")
     sysExit(1)
+
+  if compileOnly:
+    let objectStatus = assembleObject(
+      cast[ptr UncheckedArray[char]](addr sourceText[0]),
+      sourceSize,
+      objectOutput,
+    )
+    if objectStatus != AsmOk:
+      reportFailure(cstring("assemble failed"), asmStatusText(objectStatus))
+      sysExit(1)
+    let writeStatus = writeRkoObject(cast[cstring](addr outputPath[0]), objectOutput)
+    if writeStatus != RkoOk:
+      reportFailure(cstring("object write failed"), rkoStatusText(writeStatus))
+      sysExit(1)
+    write("rkas: created ")
+    write(cast[cstring](addr outputPath[0]))
+    write("\n")
+    sysExit(0)
 
   var image: RkxImageInput
   let assemblyStatus = assembleSource(

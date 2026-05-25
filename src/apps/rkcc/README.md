@@ -2,13 +2,19 @@
 
 `rkcc` is a small C-like compiler frontend hosted on Rk-C. It reads a single
 source file, emits assembly into a temporary file, and invokes `rkas` to
-produce an unprivileged RKX executable.
+produce either an unprivileged RKX executable or an RKO object linked later by `rkld`.
 
 ## Usage
 
 ```text
 rkcc <source.c> -o <output.rkx>
+rkcc -S <source.c> -o <output.s>
+rkcc -c <source.c> -o <output.rko>
+rkcc -I/usr/include -c <source.c> -o <output.rko>
 ```
+
+The `-S` form is used by the higher-level `cc` driver when the user requests
+compiler-generated assembly without assembling or linking it.
 
 ## Supported Language Surface
 
@@ -24,11 +30,13 @@ libc-mini:         write, read, open, close, puts, strlen, getuid, getgid, exit
 buffers:           char buffer[N] writable storage for read
 ```
 
-The libc-mini calls are currently compiler builtins lowered directly to the
-Rk-C syscall ABI. `puts` and `strlen` accept a string literal or a `char *`
-local whose string value remains compile-time known; `read` accepts writable
-`char buffer[N]` storage. Header parsing, external functions, general pointer
-dereference, and multi-file compilation are not implemented yet.
+Without a header include, libc-mini calls retain their early builtin lowering
+for compatibility. A source file beginning with `#include <rkc.h>` and built
+with `-I/usr/include` emits external calls for `puts`, `strlen`, `write`, and
+`exit`; those references are resolved from `/usr/lib/librkc.rko` by `cc`.
+`read`, `open`, `close`, `getuid`, and `getgid` remain builtin operations in
+the current surface. General headers, pointer dereference, and multi-file
+compilation are not implemented yet.
 
 ## Internal Layout
 

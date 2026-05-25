@@ -355,6 +355,11 @@ proc parseBuiltinCall*(parser: var Parser, identifier: var Token): CompileStatus
     status = parser.parsePointerArgument(false, length, knownLength)
     if status != CcOk:
       return status
+    if parser.useStdlib:
+      status = parser.expect(TokenRightParen)
+      if status != CcOk:
+        return status
+      return parser.emitCall(cstring("puts"))
     if not knownLength:
       return CcUnsupported
     status = parser.storeCallArg(I64(1))
@@ -376,6 +381,11 @@ proc parseBuiltinCall*(parser: var Parser, identifier: var Token): CompileStatus
     status = parser.parsePointerArgument(false, length, knownLength)
     if status != CcOk:
       return status
+    if parser.useStdlib:
+      status = parser.expect(TokenRightParen)
+      if status != CcOk:
+        return status
+      return parser.emitCall(cstring("strlen"))
     if not knownLength:
       return CcUnsupported
     status = parser.expect(TokenRightParen)
@@ -460,6 +470,8 @@ proc parseBuiltinCall*(parser: var Parser, identifier: var Token): CompileStatus
     status = parser.loadCallArg(I64(2))
     if status != CcOk:
       return status
+    if parser.useStdlib and identifier.tokenIsName(cstring("write")):
+      return parser.emitCall(cstring("write"))
     return parser.emitSyscall(
       if identifier.tokenIsName(cstring("read")): I64(SysReadFd)
       else: I64(SysWriteFd))
@@ -472,6 +484,8 @@ proc parseBuiltinCall*(parser: var Parser, identifier: var Token): CompileStatus
     if status != CcOk:
       return status
     parser.sawReturn = true
+    if parser.useStdlib:
+      return parser.emitCall(cstring("exit"))
     return parser.emitSyscall(I64(SysExit))
 
   CcUnsupported

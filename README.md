@@ -13,13 +13,15 @@ depend on toolchain implementation details.
 
 | Status | Component | Purpose |
 | --- | --- | --- |
-| Available | `src/apps/rkas` | RV64IM subset assembler that emits runnable RKX applications |
+| Available | `src/apps/rkas` | RV64IM subset assembler emitting RKX or relocatable RKO output |
 | Available | `src/lib/rkx_writer` | Shared validated RKX image writer |
 | Test only | `src/apps/rkxwritecheck` | RKX writer integration and validation utility |
-| Available | `src/apps/rkcc` | Small C-like compiler frontend producing RKX via `rkas` |
+| Available | `src/apps/rkcc` | Small C-like frontend producing RKX or RKO via `rkas` |
 | Available | `src/lib/libcmini` | Initial builtin libc-mini API lowered by `rkcc` |
-| Planned | `src/apps/rkld` | Object and library linker |
-| Planned | `src/lib/object` | Shared object-format representation |
+| Available | `src/apps/rkld` | RKO object linker producing runnable RKX applications |
+| Available | `src/lib/rko_format` | Shared RKO1 object-format reader and writer |
+| Available | `src/apps/cc` | Conventional compiler driver coordinating `rkcc` and `rkld` |
+| Available | `src/apps/rkcstdlib` | Root-owned `/usr/include/rkc.h` and `/usr/lib/librkc.rko` installer |
 
 ## Rk-C Integration
 
@@ -30,7 +32,7 @@ registered separately in `RKC_TOOLCHAIN_TEST_APP_NAMES` and appear only in
 test images.
 
 ```make
-RKC_TOOLCHAIN_APP_NAMES := rkas rkcc
+RKC_TOOLCHAIN_APP_NAMES := rkas rkcc rkld cc rkcstdlib
 RKC_TOOLCHAIN_TEST_APP_NAMES := rkxwritecheck
 ```
 
@@ -81,7 +83,33 @@ rkcc /home/rkc/src/hello.c -o /home/rkc/bin/hello
 hello
 ```
 
-The current C-like frontend includes the initial `libc-mini` surface as
-compiler builtins: `write`, `read`, `open`, `close`, `puts`, `strlen`,
-`getuid`, `getgid`, and `exit`. A linkable implementation will replace the
-builtin lowering after object files and `rkld` are available.
+Relocatable objects can be linked from one or more modules:
+
+```sh
+rkas -c /home/rkc/src/start.s -o /home/rkc/src/start.rko
+rkcc -c /home/rkc/src/main.c -o /home/rkc/src/main.rko
+rkld /home/rkc/src/start.rko /home/rkc/src/main.rko -o /home/rkc/bin/app
+```
+
+Applications can now use the driver frontend without spelling out backend tools:
+
+```sh
+cc /home/rkc/src/hello.c -o /home/rkc/bin/hello
+cc -S /home/rkc/src/hello.c -o /home/rkc/src/hello.s
+cc -c /home/rkc/src/hello.c -o /home/rkc/src/hello.rko
+cc /home/rkc/src/hello.rko -o /home/rkc/bin/hello
+```
+
+The installed standard library workflow is:
+
+```sh
+sudo rkcstdlib --install
+edit /home/rkc/src/hello.c
+cc -I/usr/include /home/rkc/src/hello.c -o /home/rkc/bin/hello
+```
+
+A source beginning with `#include <rkc.h>` emits linker-resolved calls for
+`puts`, `strlen`, `write`, and `exit`, which `cc` resolves automatically from
+`/usr/lib/librkc.rko`. The remaining initial libc-mini operations (`read`,
+`open`, `close`, `getuid`, and `getgid`) keep their compiler builtin lowering
+during the staged standard-library migration.

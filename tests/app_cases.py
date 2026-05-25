@@ -85,6 +85,46 @@ def toolchain_tests(TestCase):
         "\x18\x13\x18\x03"
     )
 
+    entry_object_input = (
+        "edit /home/rkc/src/start.s\n"
+        ".text\n"
+        ".entry _start\n"
+        "_start:\n"
+        "  call linked_greeting\n"
+        "  li a0, 0\n"
+        "  li a3, 5\n"
+        "  ecall\n"
+        "\x18\x13\x18\x03"
+    )
+
+    greeting_object_input = (
+        "edit /home/rkc/src/greeting.s\n"
+        ".text\n"
+        ".global linked_greeting\n"
+        "linked_greeting:\n"
+        "  la a0, linked_message\n"
+        "  li a1, 23\n"
+        "  li a3, 1\n"
+        "  ecall\n"
+        "  ret\n"
+        ".rodata\n"
+        "linked_message:\n"
+        "  .asciz \"hello from linked RKO!\\n\"\n"
+        "\x18\x13\x18\x03"
+    )
+
+    stdlib_source_input = (
+        "edit /home/rkc/src/stdlib_hello.c\n"
+        "#include <rkc.h>\n"
+        "int main() {\n"
+        "  char *line = \"hello from linked librkc!\\n\";\n"
+        "  write(1, line, strlen(line));\n"
+        "  puts(\"puts from linked librkc!\\n\");\n"
+        "  exit(0);\n"
+        "}\n"
+        "\x18\x13\x18\x03"
+    )
+
     return [
         TestCase(
             "rkx writer rejects invalid layouts",
@@ -149,6 +189,46 @@ def toolchain_tests(TestCase):
         TestCase("execute assembled image", "/home/rkc/bin/hello", regex=[r"hello from rkas!\r?\n"]),
         TestCase("remove assembled image", "rm /home/rkc/bin/hello", []),
         TestCase("remove assembly source", "rm /home/rkc/src/hello.s", []),
+        TestCase("rkld help", "rkld --help", ["usage: rkld"]),
+        TestCase(
+            "edit linked entry object source",
+            entry_object_input,
+            ["[op] Exit"],
+            timeout=15.0,
+            append_newline=False,
+        ),
+        TestCase(
+            "edit linked greeting object source",
+            greeting_object_input,
+            ["[op] Exit"],
+            timeout=15.0,
+            append_newline=False,
+        ),
+        TestCase(
+            "assemble entry relocatable object",
+            "rkas -c /home/rkc/src/start.s -o /home/rkc/src/a.rko",
+            ["rkas: created /home/rkc/src/a.rko"],
+        ),
+        TestCase(
+            "assemble greeting relocatable object",
+            "rkas -c /home/rkc/src/greeting.s -o /home/rkc/src/b.rko",
+            ["rkas: created /home/rkc/src/b.rko"],
+        ),
+        TestCase(
+            "link cross object executable",
+            "rkld /home/rkc/src/a.rko /home/rkc/src/b.rko -o /home/rkc/bin/lh",
+            ["rkld: created /home/rkc/bin/lh"],
+        ),
+        TestCase(
+            "execute cross object executable",
+            "/home/rkc/bin/lh",
+            regex=[r"hello from linked RKO!\r?\n"],
+        ),
+        TestCase("remove linked executable", "rm /home/rkc/bin/lh", []),
+        TestCase("remove linked entry object", "rm /home/rkc/src/a.rko", []),
+        TestCase("remove linked greeting object", "rm /home/rkc/src/b.rko", []),
+        TestCase("remove linked entry source", "rm /home/rkc/src/start.s", []),
+        TestCase("remove linked greeting source", "rm /home/rkc/src/greeting.s", []),
         TestCase("rkcc help", "rkcc --help", ["usage: rkcc"]),
         TestCase(
             "edit C-like source in user src",
@@ -182,6 +262,89 @@ def toolchain_tests(TestCase):
             ],
             regex=[r"hello from rkcc!\r?\n"],
         ),
+        TestCase(
+            "rkcc emits relocatable object",
+            "rkcc -c /home/rkc/src/hello.c -o /home/rkc/src/c_hello.rko",
+            ["rkcc: created /home/rkc/src/c_hello.rko"],
+        ),
+        TestCase(
+            "link rkcc relocatable object",
+            "rkld /home/rkc/src/c_hello.rko -o /home/rkc/bin/c_linked",
+            ["rkld: created /home/rkc/bin/c_linked"],
+        ),
+        TestCase(
+            "execute linked C-like object",
+            "/home/rkc/bin/c_linked",
+            ["libc-mini write", "identity from libc-mini", "hello from rkcc!"],
+        ),
+        TestCase("remove linked C-like image", "rm /home/rkc/bin/c_linked", []),
+        TestCase("remove C-like object", "rm /home/rkc/src/c_hello.rko", []),
+        TestCase("cc help", "cc --help", ["usage: cc", "cc -S", "cc -c"]),
+        TestCase(
+            "cc emits assembly output",
+            "cc -S /home/rkc/src/hello.c -o /home/rkc/src/cc_hello.s",
+            ["rkcc: created /home/rkc/src/cc_hello.s", "cc: created /home/rkc/src/cc_hello.s"],
+        ),
+        TestCase(
+            "inspect cc assembly output",
+            "cat /home/rkc/src/cc_hello.s",
+            [".text", ".entry _start", "ecall"],
+        ),
+        TestCase("remove cc assembly output", "rm /home/rkc/src/cc_hello.s", []),
+        TestCase(
+            "cc emits relocatable object",
+            "cc -c /home/rkc/src/hello.c -o /home/rkc/src/cc_hello.rko",
+            ["rkcc: created /home/rkc/src/cc_hello.rko", "cc: created /home/rkc/src/cc_hello.rko"],
+        ),
+        TestCase(
+            "cc links existing object input",
+            "cc /home/rkc/src/cc_hello.rko -o /home/rkc/bin/cc_object",
+            ["rkld: created /home/rkc/bin/cc_object", "cc: created /home/rkc/bin/cc_object"],
+        ),
+        TestCase(
+            "execute cc object linked image",
+            "/home/rkc/bin/cc_object",
+            ["libc-mini write", "identity from libc-mini", "hello from rkcc!"],
+        ),
+        TestCase("remove cc object linked image", "rm /home/rkc/bin/cc_object", []),
+        TestCase("remove cc object output", "rm /home/rkc/src/cc_hello.rko", []),
+        TestCase("rkc standard library installer help", "rkcstdlib --help", ["permission denied: /bin/rkcstdlib"]),
+        TestCase(
+            "install public header and linked standard library as root",
+            "sudo rkcstdlib --install\nrkc",
+            ["rkas: created /usr/lib/librkc.rko", "rkcstdlib: installed /usr/include/rkc.h", "rkcstdlib: installed /usr/lib/librkc.rko"],
+        ),
+        TestCase("read installed public header", "cat /usr/include/rkc.h", ["int puts", "int strlen", "int write", "void exit"]),
+        TestCase(
+            "cc compiles and links with include search option",
+            "cc -I/usr/include /home/rkc/src/hello.c -o /home/rkc/bin/cc_hello",
+            ["rkld: created /home/rkc/bin/cc_hello", "cc: created /home/rkc/bin/cc_hello"],
+        ),
+        TestCase(
+            "execute cc linked C-like image",
+            "/home/rkc/bin/cc_hello",
+            ["libc-mini write", "identity from libc-mini", "hello from rkcc!"],
+        ),
+        TestCase("remove cc linked image", "rm /home/rkc/bin/cc_hello", []),
+        TestCase(
+            "edit standard header C-like source",
+            stdlib_source_input,
+            ["[op] Exit"],
+            timeout=15.0,
+            append_newline=False,
+        ),
+        TestCase(
+            "cc links source against installed standard library",
+            "cc -I/usr/include /home/rkc/src/stdlib_hello.c -o /home/rkc/bin/stdlib_hello",
+            ["rkld: created /home/rkc/bin/stdlib_hello", "cc: created /home/rkc/bin/stdlib_hello"],
+        ),
+        TestCase(
+            "execute linked standard library calls",
+            "/home/rkc/bin/stdlib_hello",
+            ["hello from linked librkc!", "puts from linked librkc!"],
+        ),
+        TestCase("remove linked standard library image", "rm /home/rkc/bin/stdlib_hello", []),
+        TestCase("remove standard header source", "rm /home/rkc/src/stdlib_hello.c", []),
         TestCase("remove compiled image", "rm /home/rkc/bin/c_hello", []),
         TestCase("remove C-like source", "rm /home/rkc/src/hello.c", []),
     ]

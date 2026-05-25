@@ -17,6 +17,8 @@ const
   GeneratedSuffix = ".rkcc.s"
   RkasPath = "/bin/rkas"
   RkasArgsCapacity = PathMax + 64
+  StandardHeaderPath = "/usr/include/rkc.h"
+  StandardIncludePath = "/usr/include"
 
 
 var
@@ -31,13 +33,58 @@ var
 ## Prints rkcc command usage and its initially supported language surface.
 proc printUsage() =
   write("usage: rkcc <source.c> -o <output.rkx>\n")
+  write("       rkcc -S <source.c> -o <output.s>\n")
+  write("       rkcc -c <source.c> -o <output.rko>\n")
+  write("       rkcc -I/usr/include -c <source.c> -o <output.rko>\n")
   write("supports: int main, int/char * locals, puts, exit, if/else, while, return\n")
   write("expressions: + - * / %, shifts, comparisons, &, ^, |\n")
+  write("header: #include <rkc.h> enables linked puts/strlen/write/exit\n")
 
 
 ## Resolves one requested path into a buffer stable across later path lookups.
 proc storePath(input: cstring, buffer: var array[PathMax, char]): bool =
   resolvePathInto(input, buffer) != nil
+
+
+## Tests whether a command option starts with one fixed prefix.
+proc startsWith(value, prefix: cstring): bool =
+  var i = U32(0)
+  while prefix[i] != '\0':
+    if value[i] != prefix[i]:
+      return false
+    inc i
+  true
+
+
+## Recognizes the initial public standard header and returns source body offset.
+proc findStandardHeader(size: U32, bodyOffset: var U32): bool =
+  const Directive = "#include <rkc.h>"
+  var pos = U32(0)
+  while pos < size and
+      (sourceText[pos] == ' ' or sourceText[pos] == '\t' or
+       sourceText[pos] == '\r' or sourceText[pos] == '\n'):
+    inc pos
+  var index = U32(0)
+  while Directive[index] != '\0':
+    if pos + index >= size or sourceText[pos + index] != Directive[index]:
+      return false
+    inc index
+  let after = pos + index
+  if after < size and sourceText[after] != '\r' and sourceText[after] != '\n':
+    return false
+  bodyOffset = after
+  while bodyOffset < size and
+      (sourceText[bodyOffset] == '\r' or sourceText[bodyOffset] == '\n'):
+    inc bodyOffset
+  true
+
+
+## Checks that the standard header selected by -I is installed.
+proc standardHeaderAvailable(): bool =
+  let fd = sysOpen(cstring(StandardHeaderPath), SysOpenRead)
+  if fd < 0:
+    return false
+  sysClose(fd) == 0
 
 
 ## Builds the temporary assembly path beside the requested executable output.
@@ -93,10 +140,10 @@ proc readSource(path: cstring, size: var U32): bool =
   true
 
 
-## Writes generated assembly using bounded FD chunks on the output filesystem.
-proc writeGeneratedAssembly(generated: var AsmOutput): bool =
+## Writes generated assembly to one output path using bounded FD chunks.
+proc writeGeneratedAssembly(path: cstring, generated: var AsmOutput): bool =
   let fd = sysOpen(
-    cast[cstring](addr generatedPath[0]),
+    path,
     SysOpenWrite or SysOpenCreate or SysOpenTrunc,
   )
   if fd < 0:
@@ -127,10 +174,12 @@ proc appendArgument(text: cstring, pos: var U32): bool =
   true
 
 
-## Builds `rkas <generated> -o <output>` child arguments without allocation.
-proc buildRkasArguments(): bool =
+## Builds child assembler arguments for executable or relocatable output.
+proc buildRkasArguments(compileOnly: bool): bool =
   var pos = U32(0)
   rkasArgs[0] = '\0'
+  if compileOnly and not appendArgument(cstring("-c "), pos):
+    return false
   appendArgument(cast[cstring](addr generatedPath[0]), pos) and
     appendArgument(cstring(" -o "), pos) and
     appendArgument(cast[cstring](addr outputPath[0]), pos)
@@ -155,25 +204,64 @@ proc user_start*(arg: cstring) {.exportc, cdecl, noreturn.} =
     printUsage()
     sysExit(0)
 
-  if parsedArgs.argc != U32(3) or
-      not cstringEq(argAt(parsedArgs, U32(1)), cstring("-o")):
+  var base = U32(0)
+  var includeEnabled = false
+  if startsWith(argAt(parsedArgs, U32(0)), cstring("-I")):
+    let option = argAt(parsedArgs, U32(0))
+    if option[2] != '\0':
+      if not cstringEq(cast[cstring](cast[U64](option) + U64(2)),
+                       cstring(StandardIncludePath)):
+        fail(cstring("only /usr/include is currently supported"))
+      base = U32(1)
+      includeEnabled = true
+    elif parsedArgs.argc > U32(1) and
+        cstringEq(argAt(parsedArgs, U32(1)), cstring(StandardIncludePath)):
+      base = U32(2)
+      includeEnabled = true
+    else:
+      fail(cstring("only /usr/include is currently supported"))
+
+  let remaining = parsedArgs.argc - base
+  let assemblyOnly = remaining == U32(4) and
+    cstringEq(argAt(parsedArgs, base), cstring("-S")) and
+    cstringEq(argAt(parsedArgs, base + U32(2)), cstring("-o"))
+  let compileOnly = remaining == U32(4) and
+    cstringEq(argAt(parsedArgs, base), cstring("-c")) and
+    cstringEq(argAt(parsedArgs, base + U32(2)), cstring("-o"))
+  let executable = remaining == U32(3) and
+    cstringEq(argAt(parsedArgs, base + U32(1)), cstring("-o"))
+  if not assemblyOnly and not compileOnly and not executable:
     printUsage()
     sysExit(1)
 
-  if not storePath(argAt(parsedArgs, U32(0)), sourcePath) or
-      not storePath(argAt(parsedArgs, U32(2)), outputPath) or
-      not buildGeneratedPath():
+  let sourceArg =
+    if assemblyOnly or compileOnly: argAt(parsedArgs, base + U32(1))
+    else: argAt(parsedArgs, base)
+  let outputArg =
+    if assemblyOnly or compileOnly: argAt(parsedArgs, base + U32(3))
+    else: argAt(parsedArgs, base + U32(2))
+  if not storePath(sourceArg, sourcePath) or
+      not storePath(outputArg, outputPath):
     fail(cstring("path too long"))
 
   var sourceSize = U32(0)
   if not readSource(cast[cstring](addr sourcePath[0]), sourceSize):
     fail(cstring("failed to read source"))
 
+  var bodyOffset = U32(0)
+  let useStdlib = findStandardHeader(sourceSize, bodyOffset)
+  if useStdlib and (not includeEnabled or not standardHeaderAvailable()):
+    fail(cstring("rkc.h requires -I/usr/include and an installed header"))
+  if not useStdlib:
+    bodyOffset = U32(0)
+
   var generated: AsmOutput
   let compileStatus = compileSource(
-    cast[ptr UncheckedArray[char]](addr sourceText[0]),
-    sourceSize,
+    cast[ptr UncheckedArray[char]](
+      cast[U64](addr sourceText[0]) + U64(bodyOffset)),
+    sourceSize - bodyOffset,
     generated,
+    useStdlib,
   )
   if compileStatus != CcOk:
     write("rkcc: compile failed: ")
@@ -181,11 +269,21 @@ proc user_start*(arg: cstring) {.exportc, cdecl, noreturn.} =
     write("\n")
     sysExit(1)
 
-  if not writeGeneratedAssembly(generated):
+  if assemblyOnly:
+    if not writeGeneratedAssembly(cast[cstring](addr outputPath[0]), generated):
+      fail(cstring("failed to write generated assembly"))
+    write("rkcc: created ")
+    write(cast[cstring](addr outputPath[0]))
+    write("\n")
+    sysExit(0)
+
+  if not buildGeneratedPath():
+    fail(cstring("path too long"))
+  if not writeGeneratedAssembly(cast[cstring](addr generatedPath[0]), generated):
     discard sysUnlink(cast[cstring](addr generatedPath[0]))
     fail(cstring("failed to write generated assembly"))
 
-  if not buildRkasArguments():
+  if not buildRkasArguments(compileOnly):
     discard sysUnlink(cast[cstring](addr generatedPath[0]))
     fail(cstring("assembler arguments too long"))
 

@@ -8,4 +8,5 @@ environment.
 | `rkas` | Available | Assemble RV64 source directly into an RKX executable |
 | `rkxwritecheck` | Test only | Exercise and validate the shared RKX writer |
 | `rkcc` | Available | Compile the initial C-like language through `rkas` |
-| `rkld` | Planned | Link object files and libraries into RKX executables |
+| `rkld` | Available | Link RKO objects into RKX executables |
+| `cc` | Available | Drive compile, assembly output, object output, and link workflows |
