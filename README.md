@@ -13,11 +13,11 @@ depend on toolchain implementation details.
 
 | Status | Component | Purpose |
 | --- | --- | --- |
-| Available | `src/apps/rkas` | RV64 assembler that emits runnable RKX applications |
+| Available | `src/apps/rkas` | RV64IM subset assembler that emits runnable RKX applications |
 | Available | `src/lib/rkx_writer` | Shared validated RKX image writer |
 | Test only | `src/apps/rkxwritecheck` | RKX writer integration and validation utility |
-| Planned | `src/apps/rkcc` | Small C-like compiler frontend |
-| Planned | `src/lib/libcmini` | Minimal application programming library |
+| Available | `src/apps/rkcc` | Small C-like compiler frontend producing RKX via `rkas` |
+| Available | `src/lib/libcmini` | Initial builtin libc-mini API lowered by `rkcc` |
 | Planned | `src/apps/rkld` | Object and library linker |
 | Planned | `src/lib/object` | Shared object-format representation |
 
@@ -30,7 +30,7 @@ registered separately in `RKC_TOOLCHAIN_TEST_APP_NAMES` and appear only in
 test images.
 
 ```make
-RKC_TOOLCHAIN_APP_NAMES := rkas
+RKC_TOOLCHAIN_APP_NAMES := rkas rkcc
 RKC_TOOLCHAIN_TEST_APP_NAMES := rkxwritecheck
 ```
 
@@ -72,3 +72,16 @@ rkas /home/rkc/src/hello.s -o /home/rkc/bin/hello
 rkxinfo /home/rkc/bin/hello
 hello
 ```
+
+The hosted C-like workflow is also available:
+
+```sh
+edit /home/rkc/src/hello.c
+rkcc /home/rkc/src/hello.c -o /home/rkc/bin/hello
+hello
+```
+
+The current C-like frontend includes the initial `libc-mini` surface as
+compiler builtins: `write`, `read`, `open`, `close`, `puts`, `strlen`,
+`getuid`, `getgid`, and `exit`. A linkable implementation will replace the
+builtin lowering after object files and `rkld` are available.

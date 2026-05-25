@@ -1,12 +1,12 @@
-## Parses the initial rkas syntax and emits classified sections through RKX writer inputs.
-from lib/types import I64, U8, U32, U64
+## Parses the hosted rkas syntax and emits classified sections through RKX writer inputs.
+from lib/types import I64, PageSize, U8, U32, U64, alignUp
 from user/lib/core/strutils import isSpace
 import lib/rkx_writer/rkx_writer
 import ./encoder
 
 
 const
-  SectionCapacity = 4096
+  SectionCapacity = 16384
   LineCapacity = 192
   TokenCapacity = 8
   TokenLength = 40
@@ -112,13 +112,16 @@ proc currentOffset(): U32 =
   else: U32(0)
 
 
-## Returns the fixed virtual base of one generated section.
+## Returns the page-aligned virtual base of one generated section.
 proc sectionBase(section: SectionKind): U64 =
   case section
   of SectionText: RkxWriterUserBase
-  of SectionRodata: RkxWriterUserBase + U64(0x1000)
-  of SectionData: RkxWriterUserBase + U64(0x2000)
-  of SectionBss: RkxWriterUserBase + U64(0x3000)
+  of SectionRodata:
+    RkxWriterUserBase + alignUp(U64(state.textLen), PageSize)
+  of SectionData:
+    sectionBase(SectionRodata) + alignUp(U64(state.rodataLen), PageSize)
+  of SectionBss:
+    sectionBase(SectionData) + alignUp(U64(state.dataLen), PageSize)
   else: U64(0)
 
 
@@ -412,52 +415,124 @@ proc emitInstruction(tokens: var array[TokenCapacity, array[TokenLength, char]],
       return AsmInvalidImmediate
     return if appendInstruction(encoded): AsmOk else: AsmSectionOverflow
 
-  if (tokenIs(tokens[0], cstring("add")) or tokenIs(tokens[0], cstring("sub"))) and count == U32(4):
+  if (tokenIs(tokens[0], cstring("andi")) or tokenIs(tokens[0], cstring("ori")) or
+      tokenIs(tokens[0], cstring("xori")) or tokenIs(tokens[0], cstring("slti")) or
+      tokenIs(tokens[0], cstring("sltiu"))) and count == U32(4):
+    if not registerNumber(cast[cstring](addr tokens[1][0]), rd) or
+        not registerNumber(cast[cstring](addr tokens[2][0]), rs1):
+      return AsmInvalidRegister
+    if not parseInteger(cast[cstring](addr tokens[3][0]), immediate):
+      return AsmInvalidImmediate
+    let funct3 =
+      if tokenIs(tokens[0], cstring("andi")): U32(7)
+      elif tokenIs(tokens[0], cstring("ori")): U32(6)
+      elif tokenIs(tokens[0], cstring("xori")): U32(4)
+      elif tokenIs(tokens[0], cstring("slti")): U32(2)
+      else: U32(3)
+    if not encodeI(U32(0x13), funct3, rd, rs1, immediate, encoded):
+      return AsmInvalidImmediate
+    return if appendInstruction(encoded): AsmOk else: AsmSectionOverflow
+
+  if (tokenIs(tokens[0], cstring("slli")) or tokenIs(tokens[0], cstring("srli")) or
+      tokenIs(tokens[0], cstring("srai"))) and count == U32(4):
+    if not registerNumber(cast[cstring](addr tokens[1][0]), rd) or
+        not registerNumber(cast[cstring](addr tokens[2][0]), rs1):
+      return AsmInvalidRegister
+    if not parseInteger(cast[cstring](addr tokens[3][0]), immediate):
+      return AsmInvalidImmediate
+    let funct3 =
+      if tokenIs(tokens[0], cstring("slli")): U32(1) else: U32(5)
+    let funct6 =
+      if tokenIs(tokens[0], cstring("srai")): U32(0x10) else: U32(0)
+    if not encodeShiftI(funct6, funct3, rd, rs1, immediate, encoded):
+      return AsmInvalidImmediate
+    return if appendInstruction(encoded): AsmOk else: AsmSectionOverflow
+
+  if (tokenIs(tokens[0], cstring("add")) or tokenIs(tokens[0], cstring("sub")) or
+      tokenIs(tokens[0], cstring("slt")) or tokenIs(tokens[0], cstring("sltu")) or
+      tokenIs(tokens[0], cstring("and")) or tokenIs(tokens[0], cstring("or")) or
+      tokenIs(tokens[0], cstring("xor")) or tokenIs(tokens[0], cstring("sll")) or
+      tokenIs(tokens[0], cstring("srl")) or tokenIs(tokens[0], cstring("sra")) or
+      tokenIs(tokens[0], cstring("mul")) or tokenIs(tokens[0], cstring("div")) or
+      tokenIs(tokens[0], cstring("rem"))) and count == U32(4):
     if not registerNumber(cast[cstring](addr tokens[1][0]), rd) or
         not registerNumber(cast[cstring](addr tokens[2][0]), rs1) or
         not registerNumber(cast[cstring](addr tokens[3][0]), rs2):
       return AsmInvalidRegister
+    let funct7 =
+      if tokenIs(tokens[0], cstring("sub")) or tokenIs(tokens[0], cstring("sra")):
+        U32(0x20)
+      elif tokenIs(tokens[0], cstring("mul")) or tokenIs(tokens[0], cstring("div")) or
+          tokenIs(tokens[0], cstring("rem")):
+        U32(1)
+      else:
+        U32(0)
+    let funct3 =
+      if tokenIs(tokens[0], cstring("sll")): U32(1)
+      elif tokenIs(tokens[0], cstring("slt")): U32(2)
+      elif tokenIs(tokens[0], cstring("sltu")): U32(3)
+      elif tokenIs(tokens[0], cstring("xor")) or tokenIs(tokens[0], cstring("div")): U32(4)
+      elif tokenIs(tokens[0], cstring("srl")) or tokenIs(tokens[0], cstring("sra")): U32(5)
+      elif tokenIs(tokens[0], cstring("or")) or tokenIs(tokens[0], cstring("rem")): U32(6)
+      elif tokenIs(tokens[0], cstring("and")): U32(7)
+      else: U32(0)
     encoded = encodeR(
-      if tokenIs(tokens[0], cstring("sub")): U32(0x20) else: U32(0),
-      U32(0), rd, rs1, rs2)
+      funct7, funct3, rd, rs1, rs2)
     return if appendInstruction(encoded): AsmOk else: AsmSectionOverflow
 
   if (tokenIs(tokens[0], cstring("ld")) or tokenIs(tokens[0], cstring("lw")) or
-      tokenIs(tokens[0], cstring("lbu"))) and count == U32(3):
+      tokenIs(tokens[0], cstring("lh")) or tokenIs(tokens[0], cstring("lhu")) or
+      tokenIs(tokens[0], cstring("lb")) or tokenIs(tokens[0], cstring("lbu"))) and
+      count == U32(3):
     if not registerNumber(cast[cstring](addr tokens[1][0]), rd) or
         not parseMemoryOperand(cast[cstring](addr tokens[2][0]), immediate, rs1):
       return AsmSyntaxError
     let funct3 =
       if tokenIs(tokens[0], cstring("ld")): U32(3)
       elif tokenIs(tokens[0], cstring("lw")): U32(2)
+      elif tokenIs(tokens[0], cstring("lh")): U32(1)
+      elif tokenIs(tokens[0], cstring("lhu")): U32(5)
+      elif tokenIs(tokens[0], cstring("lb")): U32(0)
       else: U32(4)
     if not encodeI(U32(0x03), funct3, rd, rs1, immediate, encoded):
       return AsmInvalidImmediate
     return if appendInstruction(encoded): AsmOk else: AsmSectionOverflow
 
   if (tokenIs(tokens[0], cstring("sd")) or tokenIs(tokens[0], cstring("sw")) or
-      tokenIs(tokens[0], cstring("sb"))) and count == U32(3):
+      tokenIs(tokens[0], cstring("sh")) or tokenIs(tokens[0], cstring("sb"))) and
+      count == U32(3):
     if not registerNumber(cast[cstring](addr tokens[1][0]), rs2) or
         not parseMemoryOperand(cast[cstring](addr tokens[2][0]), immediate, rs1):
       return AsmSyntaxError
     let funct3 =
       if tokenIs(tokens[0], cstring("sd")): U32(3)
       elif tokenIs(tokens[0], cstring("sw")): U32(2)
+      elif tokenIs(tokens[0], cstring("sh")): U32(1)
       else: U32(0)
     if not encodeS(funct3, rs1, rs2, immediate, encoded):
       return AsmInvalidImmediate
     return if appendInstruction(encoded): AsmOk else: AsmSectionOverflow
 
-  if (tokenIs(tokens[0], cstring("beq")) or tokenIs(tokens[0], cstring("bne"))) and count == U32(4):
+  if (tokenIs(tokens[0], cstring("beq")) or tokenIs(tokens[0], cstring("bne")) or
+      tokenIs(tokens[0], cstring("blt")) or tokenIs(tokens[0], cstring("bge")) or
+      tokenIs(tokens[0], cstring("bltu")) or tokenIs(tokens[0], cstring("bgeu"))) and
+      count == U32(4):
     if not registerNumber(cast[cstring](addr tokens[1][0]), rs1) or
         not registerNumber(cast[cstring](addr tokens[2][0]), rs2):
       return AsmInvalidRegister
     let offset = state.textLen
     if not appendInstruction(U32(0)):
       return AsmSectionOverflow
+    let funct3 =
+      if tokenIs(tokens[0], cstring("bne")): U32(1)
+      elif tokenIs(tokens[0], cstring("blt")): U32(4)
+      elif tokenIs(tokens[0], cstring("bge")): U32(5)
+      elif tokenIs(tokens[0], cstring("bltu")): U32(6)
+      elif tokenIs(tokens[0], cstring("bgeu")): U32(7)
+      else: U32(0)
     return addRelocation(
       RelocBranch, cast[cstring](addr tokens[3][0]), offset, U32(0), rs1, rs2,
-      if tokenIs(tokens[0], cstring("bne")): U32(1) else: U32(0))
+      funct3)
 
   if (tokenIs(tokens[0], cstring("j")) or tokenIs(tokens[0], cstring("call"))) and count == U32(2):
     let offset = state.textLen

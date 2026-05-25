@@ -25,6 +25,16 @@ proc encodeR*(funct7, funct3, rd, rs1, rs2: U32): U32 =
     U32(0x33)
 
 
+## Encodes an RV64 shift-immediate instruction with a six-bit shift amount.
+proc encodeShiftI*(funct6, funct3, rd, rs1: U32, immediate: I64,
+                   value: var U32): bool =
+  if immediate < I64(0) or immediate > I64(63):
+    return false
+
+  let shiftImmediate = I64((funct6 and U32(0x3f)) shl U32(6)) or immediate
+  encodeI(U32(0x13), funct3, rd, rs1, shiftImmediate, value)
+
+
 ## Encodes an S-format store instruction with a signed twelve-bit offset.
 proc encodeS*(funct3, rs1, rs2: U32, immediate: I64, value: var U32): bool =
   if immediate < I64(-2048) or immediate > I64(2047):

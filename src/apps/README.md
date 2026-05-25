@@ -7,5 +7,5 @@ environment.
 | --- | --- | --- |
 | `rkas` | Available | Assemble RV64 source directly into an RKX executable |
 | `rkxwritecheck` | Test only | Exercise and validate the shared RKX writer |
-| `rkcc` | Planned | Compile a small C-like source language |
+| `rkcc` | Available | Compile the initial C-like language through `rkas` |
 | `rkld` | Planned | Link object files and libraries into RKX executables |

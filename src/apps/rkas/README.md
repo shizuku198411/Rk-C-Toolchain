@@ -10,7 +10,7 @@ unprivileged runnable executable.
 rkas <source.s> -o <output.rkx>
 ```
 
-## Initial Syntax
+## Supported Syntax
 
 ```text
 sections:    .text .rodata .data .bss
@@ -18,14 +18,22 @@ directives:  .entry .byte .asciz .zero
 labels:      name:
 
 instructions:
-  li la addi add sub
-  ld sd lw sw lbu sb
-  beq bne j call ret ecall
+  li la addi andi ori xori slti sltiu
+  add sub mul div rem and or xor slt sltu
+  sll srl sra slli srli srai
+  ld sd lw sw lh lhu sh lb lbu sb
+  beq bne blt bge bltu bgeu j call ret ecall
 ```
 
-The initial implementation uses one 4 KiB page for each section and accepts
-decimal or `0x` hexadecimal immediate values. `li` supports signed 32-bit
-constants and expands to one or two instructions as needed.
+The assembler accepts decimal or `0x` hexadecimal immediate values. Each
+section may contain up to 16 KiB, and output section virtual addresses are
+laid out on page boundaries based on the section data that was actually
+emitted. `li` supports signed 32-bit constants and expands to one or two
+instructions as needed.
+
+The multiplication and division operations use the RV64M extension. Programs
+generated through the hosted toolchain therefore target the Rk-C RV64IM
+runtime baseline.
 
 ## Example
 

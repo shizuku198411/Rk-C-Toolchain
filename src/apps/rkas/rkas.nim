@@ -1,4 +1,4 @@
-## Assembles the initial RISC-V source subset directly into an RKX executable.
+## Assembles the hosted RISC-V source subset directly into an RKX executable.
 from lib/types import U8, U32, U64
 from user/lib/core/args import UserArgs, argAt, parseUserArgs
 from user/lib/core/io import write
@@ -11,7 +11,8 @@ import ./internal/assembler
 
 
 const
-  SourceCapacity = 4096
+  SourceCapacity = 16384
+  ReadChunkSize = 4095
 
 
 var
@@ -21,11 +22,13 @@ var
   sourceText: array[SourceCapacity, char]
 
 
-## Prints rkas command usage and the initial assembly syntax surface.
+## Prints rkas command usage and the hosted assembly syntax surface.
 proc printUsage() =
   write("usage: rkas <source.s> -o <output.rkx>\n")
   write("sections: .text .rodata .data .bss\n")
   write("directives: .entry .byte .asciz .zero\n")
+  write("integer: add sub mul div rem and or xor slt sltu shifts\n")
+  write("branch: beq bne blt bge bltu bgeu\n")
 
 
 ## Resolves and copies one input path into a stable syscall-facing buffer.
@@ -41,10 +44,13 @@ proc readSource(path: cstring, size: var U32): bool =
 
   size = U32(0)
   while size < U32(SourceCapacity - 1):
+    var requestSize = U64(SourceCapacity - 1) - U64(size)
+    if requestSize > U64(ReadChunkSize):
+      requestSize = U64(ReadChunkSize)
     let readLen = sysReadFd(
       fd,
       addr sourceText[size],
-      U64(SourceCapacity - 1) - U64(size),
+      requestSize,
     )
     if readLen < 0:
       discard sysClose(fd)
