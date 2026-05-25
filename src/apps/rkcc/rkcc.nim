@@ -17,8 +17,19 @@ const
   GeneratedSuffix = ".rkcc.s"
   RkasPath = "/bin/rkas"
   RkasArgsCapacity = PathMax + 64
-  StandardHeaderPath = "/usr/include/rkc.h"
+  StdioHeaderPath = "/usr/include/rkc_stdio.h"
+  StdlibHeaderPath = "/usr/include/rkc_stdlib.h"
+  StringHeaderPath = "/usr/include/rkc_string.h"
+  UnistdHeaderPath = "/usr/include/rkc_unistd.h"
   StandardIncludePath = "/usr/include"
+
+
+type
+  HeaderUsage = object
+    stdio: bool
+    stdlib: bool
+    stringLib: bool
+    unistd: bool
 
 
 var
@@ -38,7 +49,7 @@ proc printUsage() =
   write("       rkcc -I/usr/include -c <source.c> -o <output.rko>\n")
   write("supports: int main, int/char * locals, puts, exit, if/else, while, return\n")
   write("expressions: + - * / %, shifts, comparisons, &, ^, |\n")
-  write("header: #include <rkc.h> enables linked puts/strlen/write/exit\n")
+  write("headers: rkc_stdio.h rkc_stdlib.h rkc_string.h rkc_unistd.h\n")
 
 
 ## Resolves one requested path into a buffer stable across later path lookups.
@@ -56,35 +67,60 @@ proc startsWith(value, prefix: cstring): bool =
   true
 
 
-## Recognizes the initial public standard header and returns source body offset.
-proc findStandardHeader(size: U32, bodyOffset: var U32): bool =
-  const Directive = "#include <rkc.h>"
-  var pos = U32(0)
-  while pos < size and
-      (sourceText[pos] == ' ' or sourceText[pos] == '\t' or
-       sourceText[pos] == '\r' or sourceText[pos] == '\n'):
-    inc pos
+## Tests whether one public include directive begins at the requested offset.
+proc matchesDirective(pos, size: U32, directive: cstring,
+                      after: var U32): bool =
   var index = U32(0)
-  while Directive[index] != '\0':
-    if pos + index >= size or sourceText[pos + index] != Directive[index]:
+  while directive[index] != '\0':
+    if pos + index >= size or sourceText[pos + index] != directive[index]:
       return false
     inc index
-  let after = pos + index
-  if after < size and sourceText[after] != '\r' and sourceText[after] != '\n':
-    return false
-  bodyOffset = after
-  while bodyOffset < size and
-      (sourceText[bodyOffset] == '\r' or sourceText[bodyOffset] == '\n'):
-    inc bodyOffset
-  true
+  after = pos + index
+  after >= size or sourceText[after] == '\r' or sourceText[after] == '\n'
 
 
-## Checks that the standard header selected by -I is installed.
-proc standardHeaderAvailable(): bool =
-  let fd = sysOpen(cstring(StandardHeaderPath), SysOpenRead)
+## Recognizes all initial public headers and returns the translation-unit body.
+proc findStandardHeaders(size: U32, bodyOffset: var U32,
+                         usage: var HeaderUsage): bool =
+  var pos = U32(0)
+  var included = false
+  while true:
+    while pos < size and
+        (sourceText[pos] == ' ' or sourceText[pos] == '\t' or
+         sourceText[pos] == '\r' or sourceText[pos] == '\n'):
+      inc pos
+    var after = U32(0)
+    if matchesDirective(pos, size, cstring("#include <rkc_stdio.h>"), after):
+      usage.stdio = true
+    elif matchesDirective(pos, size, cstring("#include <rkc_stdlib.h>"), after):
+      usage.stdlib = true
+    elif matchesDirective(pos, size, cstring("#include <rkc_string.h>"), after):
+      usage.stringLib = true
+    elif matchesDirective(pos, size, cstring("#include <rkc_unistd.h>"), after):
+      usage.unistd = true
+    else:
+      break
+    included = true
+    pos = after
+  if included:
+    bodyOffset = pos
+  included
+
+
+## Checks that one public header selected by -I is installed.
+proc installedHeader(path: cstring): bool =
+  let fd = sysOpen(path, SysOpenRead)
   if fd < 0:
     return false
   sysClose(fd) == 0
+
+
+## Checks that every included public standard header is installed.
+proc standardHeadersAvailable(usage: HeaderUsage): bool =
+  (not usage.stdio or installedHeader(cstring(StdioHeaderPath))) and
+    (not usage.stdlib or installedHeader(cstring(StdlibHeaderPath))) and
+    (not usage.stringLib or installedHeader(cstring(StringHeaderPath))) and
+    (not usage.unistd or installedHeader(cstring(UnistdHeaderPath)))
 
 
 ## Builds the temporary assembly path beside the requested executable output.
@@ -249,9 +285,11 @@ proc user_start*(arg: cstring) {.exportc, cdecl, noreturn.} =
     fail(cstring("failed to read source"))
 
   var bodyOffset = U32(0)
-  let useStdlib = findStandardHeader(sourceSize, bodyOffset)
-  if useStdlib and (not includeEnabled or not standardHeaderAvailable()):
-    fail(cstring("rkc.h requires -I/usr/include and an installed header"))
+  var headerUsage: HeaderUsage
+  let useStdlib = findStandardHeaders(sourceSize, bodyOffset, headerUsage)
+  if useStdlib and (not includeEnabled or
+      not standardHeadersAvailable(headerUsage)):
+    fail(cstring("rkc_* headers require -I/usr/include and installed files"))
   if not useStdlib:
     bodyOffset = U32(0)
 

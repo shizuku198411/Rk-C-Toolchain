@@ -115,11 +115,24 @@ def toolchain_tests(TestCase):
 
     stdlib_source_input = (
         "edit /home/rkc/src/stdlib_hello.c\n"
-        "#include <rkc.h>\n"
+        "#include <rkc_stdio.h>\n"
+        "#include <rkc_stdlib.h>\n"
+        "#include <rkc_string.h>\n"
+        "#include <rkc_unistd.h>\n"
         "int main() {\n"
-        "  char *line = \"hello from linked librkc!\\n\";\n"
+        "  char *line = \"hello from split libraries!\\n\";\n"
         "  write(1, line, strlen(line));\n"
-        "  puts(\"puts from linked librkc!\\n\");\n"
+        "  int uid = getuid();\n"
+        "  int gid = getgid();\n"
+        "  if (uid == gid) {\n"
+        "    puts(\"identity from linked library!\\n\");\n"
+        "  }\n"
+        "  char *release = \"/etc/os-release\";\n"
+        "  int fd = open(release, 1);\n"
+        "  char buffer[16];\n"
+        "  int got = read(fd, buffer, 12);\n"
+        "  close(fd);\n"
+        "  write(1, buffer, got);\n"
         "  exit(0);\n"
         "}\n"
         "\x18\x13\x18\x03"
@@ -310,11 +323,20 @@ def toolchain_tests(TestCase):
         TestCase("remove cc object output", "rm /home/rkc/src/cc_hello.rko", []),
         TestCase("rkc standard library installer help", "rkcstdlib --help", ["permission denied: /bin/rkcstdlib"]),
         TestCase(
-            "install public header and linked standard library as root",
-            "sudo rkcstdlib --install\nrkc",
-            ["rkas: created /usr/lib/librkc.rko", "rkcstdlib: installed /usr/include/rkc.h", "rkcstdlib: installed /usr/lib/librkc.rko"],
+            "boot installs stdio header before login",
+            "cat /usr/include/rkc_stdio.h",
+            ["int puts", "int open", "int read", "int write", "int close"],
         ),
-        TestCase("read installed public header", "cat /usr/include/rkc.h", ["int puts", "int strlen", "int write", "void exit"]),
+        TestCase(
+            "boot installs standard support headers before login",
+            "ls -l /usr/include",
+            ["rkc_stdlib.h", "rkc_string.h", "rkc_unistd.h"],
+        ),
+        TestCase(
+            "boot installs split standard libraries before login",
+            "ls -l /usr/lib",
+            ["rkc_stdio.rko", "rkc_stdlib.rko", "rkc_string.rko", "rkc_unistd.rko"],
+        ),
         TestCase(
             "cc compiles and links with include search option",
             "cc -I/usr/include /home/rkc/src/hello.c -o /home/rkc/bin/cc_hello",
@@ -341,7 +363,7 @@ def toolchain_tests(TestCase):
         TestCase(
             "execute linked standard library calls",
             "/home/rkc/bin/stdlib_hello",
-            ["hello from linked librkc!", "puts from linked librkc!"],
+            ["hello from split libraries!", "identity from linked library!", 'NAME="Rk-C"'],
         ),
         TestCase("remove linked standard library image", "rm /home/rkc/bin/stdlib_hello", []),
         TestCase("remove standard header source", "rm /home/rkc/src/stdlib_hello.c", []),

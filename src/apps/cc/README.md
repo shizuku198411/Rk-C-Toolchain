@@ -18,8 +18,9 @@ Executable builds compile one C translation unit to a temporary RKO object and
 link it through `rkld`. Existing RKO objects may be supplied alongside the C
 source or linked without a C source.
 
-After `sudo rkcstdlib --install`, `-I/usr/include` enables the public
-`#include <rkc.h>` interface and automatically links
-`/usr/lib/librkc.rko`. The first linked library surface is `puts`, `strlen`,
-`write`, and `exit`; other existing compiler-known calls remain available
-during this staged migration.
+After `rkcstdlib --install`, `-I/usr/include` enables public `rkc_*` headers
+and automatically links `/usr/lib/rkc_stdio.rko`,
+`/usr/lib/rkc_stdlib.rko`, `/usr/lib/rkc_string.rko`, and
+`/usr/lib/rkc_unistd.rko`. Programs using these headers therefore reach
+`puts`, file-descriptor I/O, string length, identity queries, and process exit
+through named library objects rather than compiler-emitted syscall sequences.

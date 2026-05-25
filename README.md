@@ -21,7 +21,7 @@ depend on toolchain implementation details.
 | Available | `src/apps/rkld` | RKO object linker producing runnable RKX applications |
 | Available | `src/lib/rko_format` | Shared RKO1 object-format reader and writer |
 | Available | `src/apps/cc` | Conventional compiler driver coordinating `rkcc` and `rkld` |
-| Available | `src/apps/rkcstdlib` | Root-owned `/usr/include/rkc.h` and `/usr/lib/librkc.rko` installer |
+| Available | `src/apps/rkcstdlib` | Root-owned split `rkc_*` headers and `rkc_*.rko` installer |
 
 ## Rk-C Integration
 
@@ -108,8 +108,8 @@ edit /home/rkc/src/hello.c
 cc -I/usr/include /home/rkc/src/hello.c -o /home/rkc/bin/hello
 ```
 
-A source beginning with `#include <rkc.h>` emits linker-resolved calls for
-`puts`, `strlen`, `write`, and `exit`, which `cc` resolves automatically from
-`/usr/lib/librkc.rko`. The remaining initial libc-mini operations (`read`,
-`open`, `close`, `getuid`, and `getgid`) keep their compiler builtin lowering
-during the staged standard-library migration.
+A source beginning with public `#include <rkc_*.h>` directives emits
+linker-resolved calls for the supported libc-mini surface, and
+`cc -I/usr/include` supplies split `rkc_stdio`, `rkc_stdlib`,
+`rkc_string`, and `rkc_unistd` objects. Sources without headers retain
+the early builtin lowering path for compatibility.

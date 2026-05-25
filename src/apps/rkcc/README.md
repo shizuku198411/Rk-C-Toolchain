@@ -31,12 +31,13 @@ buffers:           char buffer[N] writable storage for read
 ```
 
 Without a header include, libc-mini calls retain their early builtin lowering
-for compatibility. A source file beginning with `#include <rkc.h>` and built
-with `-I/usr/include` emits external calls for `puts`, `strlen`, `write`, and
-`exit`; those references are resolved from `/usr/lib/librkc.rko` by `cc`.
-`read`, `open`, `close`, `getuid`, and `getgid` remain builtin operations in
-the current surface. General headers, pointer dereference, and multi-file
-compilation are not implemented yet.
+for compatibility. A source file may begin with any combination of
+`#include <rkc_stdio.h>`, `#include <rkc_stdlib.h>`,
+`#include <rkc_string.h>`, and `#include <rkc_unistd.h>` and be built with
+`-I/usr/include`. In that mode, all supported libc-mini operations emit
+external calls resolved from split standard library RKO objects by `cc`.
+General headers, declaration-based type checking, pointer dereference, and
+multi-file compilation are not implemented yet.
 
 ## Internal Layout
 

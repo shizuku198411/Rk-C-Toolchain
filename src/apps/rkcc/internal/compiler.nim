@@ -51,8 +51,12 @@ proc compileSource*(source: ptr UncheckedArray[char], size: U32,
     return CcSyntaxError
 
   if not parser.sawReturn:
-    if not emitLine(parser.text, cstring("  li a0, 0")) or
-        not emitNumberLine(parser.text, cstring("  li a3, "), I64(SysExit)) or
+    if not emitLine(parser.text, cstring("  li a0, 0")):
+      return CcOutputTooLarge
+    if useStdlib:
+      if parser.emitCall(cstring("exit")) != CcOk:
+        return CcOutputTooLarge
+    elif not emitNumberLine(parser.text, cstring("  li a3, "), I64(SysExit)) or
         not emitLine(parser.text, cstring("  ecall")):
       return CcOutputTooLarge
   if not emitLine(parser.text, cstring(".rodata")) or

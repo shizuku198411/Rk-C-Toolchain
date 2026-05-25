@@ -1,4 +1,4 @@
-## Installs the public Rk-C C header and builds its relocatable standard library.
+## Installs split public Rk-C C headers and their relocatable userspace libraries.
 from lib/fixed_string import cstrlen
 from lib/types import U64
 from user/lib/core/args import UserArgs, argAt, parseUserArgs
@@ -9,21 +9,39 @@ from user/lib/core/syscall import SysFsWriteCreate, SysFsWriteOverwrite,
 
 
 const
-  HeaderPath = "/usr/include/rkc.h"
-  AssemblyPath = "/usr/lib/librkc.s"
-  ObjectPath = "/usr/lib/librkc.rko"
   RkasPath = "/bin/rkas"
-  HeaderContents =
+  StdioHeaderPath = "/usr/include/rkc_stdio.h"
+  StdlibHeaderPath = "/usr/include/rkc_stdlib.h"
+  StringHeaderPath = "/usr/include/rkc_string.h"
+  UnistdHeaderPath = "/usr/include/rkc_unistd.h"
+  StdioAssemblyPath = "/usr/lib/rkc_stdio.s"
+  StdlibAssemblyPath = "/usr/lib/rkc_stdlib.s"
+  StringAssemblyPath = "/usr/lib/rkc_string.s"
+  UnistdAssemblyPath = "/usr/lib/rkc_unistd.s"
+  StdioObjectPath = "/usr/lib/rkc_stdio.rko"
+  StdlibObjectPath = "/usr/lib/rkc_stdlib.rko"
+  StringObjectPath = "/usr/lib/rkc_string.rko"
+  UnistdObjectPath = "/usr/lib/rkc_unistd.rko"
+  StdioHeaderContents =
     "int puts(char *text);\n" &
-    "int strlen(char *text);\n" &
+    "int open(char *path, int flags);\n" &
+    "int read(int fd, char *buffer, int length);\n" &
     "int write(int fd, char *buffer, int length);\n" &
+    "int close(int fd);\n"
+  StdlibHeaderContents =
     "void exit(int status);\n"
-  AssemblyContents =
+  StringHeaderContents =
+    "int strlen(char *text);\n"
+  UnistdHeaderContents =
+    "int getuid(void);\n" &
+    "int getgid(void);\n"
+  StdioAssemblyContents =
     ".text\n" &
     ".global puts\n" &
-    ".global strlen\n" &
+    ".global open\n" &
+    ".global read\n" &
     ".global write\n" &
-    ".global exit\n" &
+    ".global close\n" &
     "puts:\n" &
     "  addi sp, sp, -16\n" &
     "  sd ra, 0(sp)\n" &
@@ -32,11 +50,42 @@ const
     "  addi a2, a0, 0\n" &
     "  ld a1, 8(sp)\n" &
     "  li a0, 1\n" &
-    "  li a3, 59\n" &
-    "  ecall\n" &
+    "  call write\n" &
     "  ld ra, 0(sp)\n" &
     "  addi sp, sp, 16\n" &
     "  ret\n" &
+    "open:\n" &
+    "  li a3, 57\n" &
+    "  ecall\n" &
+    "  ret\n" &
+    "read:\n" &
+    "  li a3, 58\n" &
+    "  ecall\n" &
+    "  ret\n" &
+    "write:\n" &
+    "  li a3, 59\n" &
+    "  ecall\n" &
+    "  ret\n" &
+    "close:\n" &
+    "  li a3, 60\n" &
+    "  ecall\n" &
+    "  ret\n" &
+    ".rodata\n" &
+    ".data\n" &
+    ".bss\n"
+  StdlibAssemblyContents =
+    ".text\n" &
+    ".global exit\n" &
+    "exit:\n" &
+    "  li a3, 5\n" &
+    "  ecall\n" &
+    "  j exit\n" &
+    ".rodata\n" &
+    ".data\n" &
+    ".bss\n"
+  StringAssemblyContents =
+    ".text\n" &
+    ".global strlen\n" &
     "strlen:\n" &
     "  addi t0, a0, 0\n" &
     "  li a0, 0\n" &
@@ -48,18 +97,28 @@ const
     "  j .Lstrlen_loop\n" &
     ".Lstrlen_done:\n" &
     "  ret\n" &
-    "write:\n" &
-    "  li a3, 59\n" &
-    "  ecall\n" &
-    "  ret\n" &
-    "exit:\n" &
-    "  li a3, 5\n" &
-    "  ecall\n" &
-    "  j exit\n" &
     ".rodata\n" &
     ".data\n" &
     ".bss\n"
-  RkasArguments = "-c /usr/lib/librkc.s -o /usr/lib/librkc.rko"
+  UnistdAssemblyContents =
+    ".text\n" &
+    ".global getuid\n" &
+    ".global getgid\n" &
+    "getuid:\n" &
+    "  li a3, 76\n" &
+    "  ecall\n" &
+    "  ret\n" &
+    "getgid:\n" &
+    "  li a3, 77\n" &
+    "  ecall\n" &
+    "  ret\n" &
+    ".rodata\n" &
+    ".data\n" &
+    ".bss\n"
+  StdioRkasArguments = "-c /usr/lib/rkc_stdio.s -o /usr/lib/rkc_stdio.rko"
+  StdlibRkasArguments = "-c /usr/lib/rkc_stdlib.s -o /usr/lib/rkc_stdlib.rko"
+  StringRkasArguments = "-c /usr/lib/rkc_string.s -o /usr/lib/rkc_string.rko"
+  UnistdRkasArguments = "-c /usr/lib/rkc_unistd.s -o /usr/lib/rkc_unistd.rko"
 
 
 var parsedArgs: UserArgs
@@ -80,25 +139,45 @@ proc writeInstalledFile(path, content: cstring): bool =
   ) == 0 and sysChmod(path, 0o644) == 0
 
 
-## Installs the header and assembles the linkable standard-library object.
-proc installLibrary(): bool =
-  if not writeInstalledFile(cstring(HeaderPath), cstring(HeaderContents)):
-    write("rkcstdlib: failed to write /usr/include/rkc.h\n")
-    return false
-  if not writeInstalledFile(cstring(AssemblyPath), cstring(AssemblyContents)):
-    write("rkcstdlib: failed to write /usr/lib/librkc.s\n")
-    return false
-
-  let pid = sysExec(cstring(RkasPath), cstring(RkasArguments), false)
+## Assembles one installed library source and protects its public object output.
+proc assembleLibrary(arguments, objectPath: cstring): bool =
+  let pid = sysExec(cstring(RkasPath), arguments, false)
   if pid < 0 or sysWait(pid) != U64(0):
-    write("rkcstdlib: failed to assemble /usr/lib/librkc.rko\n")
     return false
-  if sysChmod(cstring(ObjectPath), 0o644) != 0:
-    write("rkcstdlib: failed to protect /usr/lib/librkc.rko\n")
+  sysChmod(objectPath, 0o644) == 0
+
+
+## Installs split headers and assembles their linkable library objects.
+proc installLibrary(): bool =
+  if not writeInstalledFile(cstring(StdioHeaderPath), cstring(StdioHeaderContents)) or
+      not writeInstalledFile(cstring(StdlibHeaderPath), cstring(StdlibHeaderContents)) or
+      not writeInstalledFile(cstring(StringHeaderPath), cstring(StringHeaderContents)) or
+      not writeInstalledFile(cstring(UnistdHeaderPath), cstring(UnistdHeaderContents)):
+    write("rkcstdlib: failed to write public headers\n")
     return false
 
-  write("rkcstdlib: installed /usr/include/rkc.h\n")
-  write("rkcstdlib: installed /usr/lib/librkc.rko\n")
+  if not writeInstalledFile(cstring(StdioAssemblyPath), cstring(StdioAssemblyContents)) or
+      not writeInstalledFile(cstring(StdlibAssemblyPath), cstring(StdlibAssemblyContents)) or
+      not writeInstalledFile(cstring(StringAssemblyPath), cstring(StringAssemblyContents)) or
+      not writeInstalledFile(cstring(UnistdAssemblyPath), cstring(UnistdAssemblyContents)):
+    write("rkcstdlib: failed to write library assembly\n")
+    return false
+
+  if not assembleLibrary(cstring(StdioRkasArguments), cstring(StdioObjectPath)) or
+      not assembleLibrary(cstring(StdlibRkasArguments), cstring(StdlibObjectPath)) or
+      not assembleLibrary(cstring(StringRkasArguments), cstring(StringObjectPath)) or
+      not assembleLibrary(cstring(UnistdRkasArguments), cstring(UnistdObjectPath)):
+    write("rkcstdlib: failed to assemble public libraries\n")
+    return false
+
+  write("rkcstdlib: installed /usr/include/rkc_stdio.h\n")
+  write("rkcstdlib: installed /usr/include/rkc_stdlib.h\n")
+  write("rkcstdlib: installed /usr/include/rkc_string.h\n")
+  write("rkcstdlib: installed /usr/include/rkc_unistd.h\n")
+  write("rkcstdlib: installed /usr/lib/rkc_stdio.rko\n")
+  write("rkcstdlib: installed /usr/lib/rkc_stdlib.rko\n")
+  write("rkcstdlib: installed /usr/lib/rkc_string.rko\n")
+  write("rkcstdlib: installed /usr/lib/rkc_unistd.rko\n")
   true
 
 

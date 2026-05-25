@@ -11,8 +11,12 @@ const
   RkccPath = "/bin/rkcc"
   RkldPath = "/bin/rkld"
   StandardIncludePath = "/usr/include"
-  StandardLibraryPath = "/usr/lib/librkc.rko"
+  StdioLibraryPath = "/usr/lib/rkc_stdio.rko"
+  StdlibLibraryPath = "/usr/lib/rkc_stdlib.rko"
+  StringLibraryPath = "/usr/lib/rkc_string.rko"
+  UnistdLibraryPath = "/usr/lib/rkc_unistd.rko"
   LinkInputCapacity = 8
+  StandardLibraryCount = 4
   ChildArgsCapacity = PathMax * (LinkInputCapacity + 3)
 
 
@@ -44,7 +48,7 @@ proc printUsage() =
   write("       cc -S <input.c> -o <output.s>\n")
   write("       cc -c <input.c> -o <output.rko>\n")
   write("       cc -I<dir> <input.c> [input.rko...] -o <output.rkx>\n")
-  write("notes: -I/usr/include enables #include <rkc.h> and librkc linking\n")
+  write("notes: -I/usr/include enables rkc_* headers and standard libraries\n")
 
 
 ## Reports a frontend failure and terminates the compiler driver.
@@ -196,6 +200,11 @@ proc parseOptions(args: var UserArgs, parsed: var DriverOptions): bool =
     return parsed.source != nil and parsed.objectCount == U32(0)
   if parsed.source != nil and parsed.objectCount >= U32(LinkInputCapacity):
     return false
+  if parsed.useStdlib and
+      parsed.objectCount + U32(StandardLibraryCount) +
+        (if parsed.source != nil: U32(1) else: U32(0)) >
+        U32(LinkInputCapacity):
+    return false
   parsed.source != nil or parsed.objectCount > U32(0)
 
 
@@ -237,9 +246,12 @@ proc linkOutput(compiled: bool): bool =
     if not appendArgument(options.objects[index], pos):
       return false
     inc index
-  if options.useStdlib and
-      not appendArgument(cstring(StandardLibraryPath), pos):
-    return false
+  if options.useStdlib:
+    if not appendArgument(cstring(StdioLibraryPath), pos) or
+        not appendArgument(cstring(StdlibLibraryPath), pos) or
+        not appendArgument(cstring(StringLibraryPath), pos) or
+        not appendArgument(cstring(UnistdLibraryPath), pos):
+      return false
   if not appendArgument(cstring("-o"), pos) or
       not appendArgument(options.output, pos):
     return false

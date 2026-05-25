@@ -238,7 +238,9 @@ proc parseStatement*(parser: var Parser): CompileStatus =
     status = parser.expect(TokenSemicolon)
     if status != CcOk:
       return status
-    status = parser.emitSyscall(I64(SysExit))
+    status =
+      if parser.useStdlib: parser.emitCall(cstring("exit"))
+      else: parser.emitSyscall(I64(SysExit))
     if status != CcOk:
       return status
     parser.sawReturn = true

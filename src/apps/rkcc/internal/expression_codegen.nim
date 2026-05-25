@@ -344,6 +344,10 @@ proc parseBuiltinCall*(parser: var Parser, identifier: var Token): CompileStatus
     status = parser.expect(TokenRightParen)
     if status != CcOk:
       return status
+    if parser.useStdlib:
+      return parser.emitCall(
+        if identifier.tokenIsName(cstring("getuid")): cstring("getuid")
+        else: cstring("getgid"))
     return parser.emitSyscall(
       if identifier.tokenIsName(cstring("getuid")): I64(SysGetUid)
       else: I64(SysGetGid))
@@ -420,6 +424,8 @@ proc parseBuiltinCall*(parser: var Parser, identifier: var Token): CompileStatus
     status = parser.loadCallArg(I64(1))
     if status != CcOk:
       return status
+    if parser.useStdlib:
+      return parser.emitCall(cstring("open"))
     return parser.emitSyscall(I64(SysOpen))
 
   if identifier.tokenIsName(cstring("close")):
@@ -429,6 +435,8 @@ proc parseBuiltinCall*(parser: var Parser, identifier: var Token): CompileStatus
     status = parser.expect(TokenRightParen)
     if status != CcOk:
       return status
+    if parser.useStdlib:
+      return parser.emitCall(cstring("close"))
     return parser.emitSyscall(I64(SysClose))
 
   if identifier.tokenIsName(cstring("write")) or
@@ -470,8 +478,10 @@ proc parseBuiltinCall*(parser: var Parser, identifier: var Token): CompileStatus
     status = parser.loadCallArg(I64(2))
     if status != CcOk:
       return status
-    if parser.useStdlib and identifier.tokenIsName(cstring("write")):
-      return parser.emitCall(cstring("write"))
+    if parser.useStdlib:
+      return parser.emitCall(
+        if identifier.tokenIsName(cstring("read")): cstring("read")
+        else: cstring("write"))
     return parser.emitSyscall(
       if identifier.tokenIsName(cstring("read")): I64(SysReadFd)
       else: I64(SysWriteFd))
