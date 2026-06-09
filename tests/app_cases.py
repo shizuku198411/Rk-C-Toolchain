@@ -357,10 +357,11 @@ def toolchain_tests(TestCase):
             timeout=15.0,
             append_newline=False,
         ),
+        TestCase("cd home for relative standard library build", "cd /home/rkc", []),
         TestCase(
-            "cc auto-links source with installed standard headers",
-            "cc /home/rkc/src/stdlib_hello.c -o /home/rkc/bin/stdlib_hello",
-            ["rkld: created /home/rkc/bin/stdlib_hello", "cc: created /home/rkc/bin/stdlib_hello"],
+            "cc auto-links relative source with installed standard headers",
+            "cc src/stdlib_hello.c -o bin/stdlib_hello",
+            ["rkld: created /home/rkc/bin/stdlib_hello", "cc: created bin/stdlib_hello"],
         ),
         TestCase(
             "execute linked standard library calls",

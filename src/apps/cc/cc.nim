@@ -2,7 +2,7 @@
 from lib/types import U32, U64
 from user/lib/core/args import UserArgs, argAt, parseUserArgs
 from user/lib/core/io import write
-from user/lib/core/pathutils import PathMax
+from user/lib/core/pathutils import PathMax, resolvePathInto
 from user/lib/core/strutils import cstringEq
 from user/lib/core/syscall import SysOpenRead, sysClose, sysExec, sysExit,
   sysGetPid, sysOpen, sysReadFd, sysUnlink, sysWait
@@ -41,6 +41,7 @@ var
   parsedArgs: UserArgs
   options: DriverOptions
   temporaryObject: array[PathMax, char]
+  scanPath: array[PathMax, char]
   childArgs: array[ChildArgsCapacity, char]
   sourceScan: array[SourceScanCapacity, char]
 
@@ -104,7 +105,11 @@ proc matchesDirective(pos, size: U32, directive: cstring,
 
 ## Recognizes initial public standard headers so cc can link their libraries.
 proc sourceUsesStandardHeaders(path: cstring): bool =
-  let fd = sysOpen(path, SysOpenRead)
+  let resolved = resolvePathInto(path, scanPath)
+  if resolved == nil:
+    return false
+
+  let fd = sysOpen(resolved, SysOpenRead)
   if fd < 0:
     return false
 
@@ -232,13 +237,11 @@ proc parseOptions(args: var UserArgs, parsed: var DriverOptions): bool =
           not cstringEq(argAt(args, index + U32(1)), cstring(StandardIncludePath)):
         return false
       inc index
-      parsed.useStdlib = true
     elif startsWith(item, cstring("-I")):
       if item[2] == '\0' or
           not cstringEq(cast[cstring](cast[U64](item) + U64(2)),
                         cstring(StandardIncludePath)):
         return false
-      parsed.useStdlib = true
     elif item[0] == '-':
       return false
     elif endsWith(item, cstring(".c")):
