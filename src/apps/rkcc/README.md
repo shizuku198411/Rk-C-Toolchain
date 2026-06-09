@@ -10,7 +10,6 @@ produce either an unprivileged RKX executable or an RKO object linked later by `
 rkcc <source.c> -o <output.rkx>
 rkcc -S <source.c> -o <output.s>
 rkcc -c <source.c> -o <output.rko>
-rkcc -I/usr/include -c <source.c> -o <output.rko>
 ```
 
 The `-S` form is used by the higher-level `cc` driver when the user requests
@@ -21,23 +20,25 @@ compiler-generated assembly without assembling or linking it.
 ```text
 translation unit:  int main() { ... }
 local types:       int, char * initialized from a string literal
-statements:        declarations, assignment, puts, exit, if/else, while, return
+statements:        declarations, assignment, puts, printf, exit, if/else, while, return
 int expressions:   literals, locals, unary -, +, -, *, /, %, shifts
 comparisons:       ==, !=, <, <=, >, >=
 bit operations:    &, ^, |
 strings:           quoted literals with \n, \r, \t, \0, \\, and \" escapes
-libc-mini:         write, read, open, close, puts, strlen, getuid, getgid, exit
+libc-mini:         write, read, open, close, puts, printf, strlen, getuid, getgid, exit
 buffers:           char buffer[N] writable storage for read
 ```
 
 Without a header include, libc-mini calls retain their early builtin lowering
 for compatibility. A source file may begin with any combination of
 `#include <rkc_stdio.h>`, `#include <rkc_stdlib.h>`,
-`#include <rkc_string.h>`, and `#include <rkc_unistd.h>` and be built with
-`-I/usr/include`. In that mode, all supported libc-mini operations emit
-external calls resolved from split standard library RKO objects by `cc`.
-General headers, declaration-based type checking, pointer dereference, and
-multi-file compilation are not implemented yet.
+`#include <rkc_string.h>`, and `#include <rkc_unistd.h>`. In that mode, `rkcc`
+automatically validates the installed `/usr/include` headers and emits external
+calls resolved from split standard library RKO objects by `cc`.
+`printf` is available only through the split standard library path and supports
+`%s`, `%d`, `%x`, `%c`, and `%%` with up to five value arguments. General
+headers, declaration-based type checking, pointer dereference, and multi-file
+compilation are not implemented yet.
 
 ## Internal Layout
 

@@ -14,10 +14,17 @@ The installation keeps API ownership explicit:
 
 | Header | Object library | Exported functions |
 | --- | --- | --- |
-| `/usr/include/rkc_stdio.h` | `/usr/lib/rkc_stdio.rko` | `puts`, `open`, `read`, `write`, `close` |
+| `/usr/include/rkc_stdio.h` | `/usr/lib/rkc_stdio.rko` | `puts`, `printf`, `open`, `read`, `write`, `close` |
 | `/usr/include/rkc_stdlib.h` | `/usr/lib/rkc_stdlib.rko` | `exit` |
 | `/usr/include/rkc_string.h` | `/usr/lib/rkc_string.rko` | `strlen` |
 | `/usr/include/rkc_unistd.h` | `/usr/lib/rkc_unistd.rko` | `getuid`, `getgid` |
 
 `puts` is deliberately linked through `strlen` and `write`, so standard
 library objects exercise normal cross-object symbol resolution.
+
+`printf` provides a compact development formatter for `%s`, `%d`, `%x`, `%c`,
+and `%%`. The current `rkcc` calling convention passes the format plus up to
+five value arguments in registers.
+
+Manual pages for installed headers and functions are available from
+[`docs/README.md`](../../../docs/README.md).

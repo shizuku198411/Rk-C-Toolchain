@@ -47,9 +47,9 @@ proc printUsage() =
   write("       rkcc -S <source.c> -o <output.s>\n")
   write("       rkcc -c <source.c> -o <output.rko>\n")
   write("       rkcc -I/usr/include -c <source.c> -o <output.rko>\n")
-  write("supports: int main, int/char * locals, puts, exit, if/else, while, return\n")
+  write("supports: int main, int/char * locals, puts, printf, exit, if/else, while, return\n")
   write("expressions: + - * / %, shifts, comparisons, &, ^, |\n")
-  write("headers: rkc_stdio.h rkc_stdlib.h rkc_string.h rkc_unistd.h\n")
+  write("headers: rkc_* headers are auto-loaded from /usr/include\n")
 
 
 ## Resolves one requested path into a buffer stable across later path lookups.
@@ -241,7 +241,6 @@ proc user_start*(arg: cstring) {.exportc, cdecl, noreturn.} =
     sysExit(0)
 
   var base = U32(0)
-  var includeEnabled = false
   if startsWith(argAt(parsedArgs, U32(0)), cstring("-I")):
     let option = argAt(parsedArgs, U32(0))
     if option[2] != '\0':
@@ -249,11 +248,9 @@ proc user_start*(arg: cstring) {.exportc, cdecl, noreturn.} =
                        cstring(StandardIncludePath)):
         fail(cstring("only /usr/include is currently supported"))
       base = U32(1)
-      includeEnabled = true
     elif parsedArgs.argc > U32(1) and
         cstringEq(argAt(parsedArgs, U32(1)), cstring(StandardIncludePath)):
       base = U32(2)
-      includeEnabled = true
     else:
       fail(cstring("only /usr/include is currently supported"))
 
@@ -287,9 +284,8 @@ proc user_start*(arg: cstring) {.exportc, cdecl, noreturn.} =
   var bodyOffset = U32(0)
   var headerUsage: HeaderUsage
   let useStdlib = findStandardHeaders(sourceSize, bodyOffset, headerUsage)
-  if useStdlib and (not includeEnabled or
-      not standardHeadersAvailable(headerUsage)):
-    fail(cstring("rkc_* headers require -I/usr/include and installed files"))
+  if useStdlib and not standardHeadersAvailable(headerUsage):
+    fail(cstring("rkc_* headers require installed /usr/include files"))
   if not useStdlib:
     bodyOffset = U32(0)
 

@@ -24,6 +24,7 @@ const
   UnistdObjectPath = "/usr/lib/rkc_unistd.rko"
   StdioHeaderContents =
     "int puts(char *text);\n" &
+    "int printf(char *format, ...);\n" &
     "int open(char *path, int flags);\n" &
     "int read(int fd, char *buffer, int length);\n" &
     "int write(int fd, char *buffer, int length);\n" &
@@ -38,10 +39,189 @@ const
   StdioAssemblyContents =
     ".text\n" &
     ".global puts\n" &
+    ".global printf\n" &
     ".global open\n" &
     ".global read\n" &
     ".global write\n" &
     ".global close\n" &
+    "printf:\n" &
+    "  addi sp, sp, -160\n" &
+    "  sd ra, 0(sp)\n" &
+    "  sd s0, 8(sp)\n" &
+    "  sd s1, 16(sp)\n" &
+    "  sd s2, 24(sp)\n" &
+    "  sd a1, 40(sp)\n" &
+    "  sd a2, 48(sp)\n" &
+    "  sd a3, 56(sp)\n" &
+    "  sd a4, 64(sp)\n" &
+    "  sd a5, 72(sp)\n" &
+    "  addi s0, a0, 0\n" &
+    "  addi s1, sp, 40\n" &
+    "  li s2, 0\n" &
+    ".Lpf_loop:\n" &
+    "  lbu t0, 0(s0)\n" &
+    "  beq t0, zero, .Lpf_done\n" &
+    "  addi s0, s0, 1\n" &
+    "  li t1, 37\n" &
+    "  beq t0, t1, .Lpf_fmt\n" &
+    "  call .Lpf_putc\n" &
+    "  add s2, s2, a0\n" &
+    "  j .Lpf_loop\n" &
+    ".Lpf_fmt:\n" &
+    "  lbu t0, 0(s0)\n" &
+    "  beq t0, zero, .Lpf_done\n" &
+    "  addi s0, s0, 1\n" &
+    "  li t1, 37\n" &
+    "  beq t0, t1, .Lpf_pct\n" &
+    "  li t1, 115\n" &
+    "  beq t0, t1, .Lpf_s\n" &
+    "  li t1, 100\n" &
+    "  beq t0, t1, .Lpf_d\n" &
+    "  li t1, 120\n" &
+    "  beq t0, t1, .Lpf_x\n" &
+    "  li t1, 99\n" &
+    "  beq t0, t1, .Lpf_c\n" &
+    "  li t0, 37\n" &
+    "  call .Lpf_putc\n" &
+    "  add s2, s2, a0\n" &
+    "  j .Lpf_loop\n" &
+    ".Lpf_pct:\n" &
+    "  li t0, 37\n" &
+    "  call .Lpf_putc\n" &
+    "  add s2, s2, a0\n" &
+    "  j .Lpf_loop\n" &
+    ".Lpf_s:\n" &
+    "  ld a0, 0(s1)\n" &
+    "  addi s1, s1, 8\n" &
+    "  call .Lpf_puts\n" &
+    "  add s2, s2, a0\n" &
+    "  j .Lpf_loop\n" &
+    ".Lpf_d:\n" &
+    "  ld a0, 0(s1)\n" &
+    "  addi s1, s1, 8\n" &
+    "  call .Lpf_dec\n" &
+    "  add s2, s2, a0\n" &
+    "  j .Lpf_loop\n" &
+    ".Lpf_x:\n" &
+    "  ld a0, 0(s1)\n" &
+    "  addi s1, s1, 8\n" &
+    "  call .Lpf_hex\n" &
+    "  add s2, s2, a0\n" &
+    "  j .Lpf_loop\n" &
+    ".Lpf_c:\n" &
+    "  ld t0, 0(s1)\n" &
+    "  addi s1, s1, 8\n" &
+    "  call .Lpf_putc\n" &
+    "  add s2, s2, a0\n" &
+    "  j .Lpf_loop\n" &
+    ".Lpf_done:\n" &
+    "  addi a0, s2, 0\n" &
+    "  ld ra, 0(sp)\n" &
+    "  ld s0, 8(sp)\n" &
+    "  ld s1, 16(sp)\n" &
+    "  ld s2, 24(sp)\n" &
+    "  addi sp, sp, 160\n" &
+    "  ret\n" &
+    ".Lpf_putc:\n" &
+    "  sb t0, 96(sp)\n" &
+    "  li a0, 1\n" &
+    "  addi a1, sp, 96\n" &
+    "  li a2, 1\n" &
+    "  li a3, 59\n" &
+    "  ecall\n" &
+    "  ret\n" &
+    ".Lpf_puts:\n" &
+    "  beq a0, zero, .Lpf_puts_zero\n" &
+    "  addi t0, a0, 0\n" &
+    "  li t1, 0\n" &
+    ".Lpf_puts_len:\n" &
+    "  lbu t2, 0(t0)\n" &
+    "  beq t2, zero, .Lpf_puts_write\n" &
+    "  addi t0, t0, 1\n" &
+    "  addi t1, t1, 1\n" &
+    "  j .Lpf_puts_len\n" &
+    ".Lpf_puts_write:\n" &
+    "  addi a1, a0, 0\n" &
+    "  li a0, 1\n" &
+    "  addi a2, t1, 0\n" &
+    "  li a3, 59\n" &
+    "  ecall\n" &
+    "  ret\n" &
+    ".Lpf_puts_zero:\n" &
+    "  li a0, 0\n" &
+    "  ret\n" &
+    ".Lpf_dec:\n" &
+    "  addi t0, a0, 0\n" &
+    "  addi t3, sp, 127\n" &
+    "  li t4, 0\n" &
+    "  li t5, 0\n" &
+    "  bge t0, zero, .Lpf_dec_abs\n" &
+    "  li t5, 1\n" &
+    "  sub t0, zero, t0\n" &
+    ".Lpf_dec_abs:\n" &
+    "  li t1, 10\n" &
+    "  bne t0, zero, .Lpf_dec_loop\n" &
+    "  li t2, 48\n" &
+    "  sb t2, 0(t3)\n" &
+    "  addi t3, t3, -1\n" &
+    "  addi t4, t4, 1\n" &
+    "  j .Lpf_dec_sign\n" &
+    ".Lpf_dec_loop:\n" &
+    "  rem t2, t0, t1\n" &
+    "  div t0, t0, t1\n" &
+    "  addi t2, t2, 48\n" &
+    "  sb t2, 0(t3)\n" &
+    "  addi t3, t3, -1\n" &
+    "  addi t4, t4, 1\n" &
+    "  bne t0, zero, .Lpf_dec_loop\n" &
+    ".Lpf_dec_sign:\n" &
+    "  beq t5, zero, .Lpf_dec_write\n" &
+    "  li t2, 45\n" &
+    "  sb t2, 0(t3)\n" &
+    "  addi t3, t3, -1\n" &
+    "  addi t4, t4, 1\n" &
+    ".Lpf_dec_write:\n" &
+    "  addi a1, t3, 1\n" &
+    "  li a0, 1\n" &
+    "  addi a2, t4, 0\n" &
+    "  li a3, 59\n" &
+    "  ecall\n" &
+    "  ret\n" &
+    ".Lpf_hex:\n" &
+    "  addi t0, a0, 0\n" &
+    "  addi t3, sp, 96\n" &
+    "  li t4, 0\n" &
+    "  li t5, 0\n" &
+    "  li t1, 60\n" &
+    ".Lpf_hex_loop:\n" &
+    "  srl t2, t0, t1\n" &
+    "  andi t2, t2, 15\n" &
+    "  bne t2, zero, .Lpf_hex_emit\n" &
+    "  bne t5, zero, .Lpf_hex_emit\n" &
+    "  bne t1, zero, .Lpf_hex_next\n" &
+    ".Lpf_hex_emit:\n" &
+    "  li t5, 1\n" &
+    "  li t6, 10\n" &
+    "  blt t2, t6, .Lpf_hex_digit\n" &
+    "  addi t2, t2, 87\n" &
+    "  j .Lpf_hex_store\n" &
+    ".Lpf_hex_digit:\n" &
+    "  addi t2, t2, 48\n" &
+    ".Lpf_hex_store:\n" &
+    "  sb t2, 0(t3)\n" &
+    "  addi t3, t3, 1\n" &
+    "  addi t4, t4, 1\n" &
+    ".Lpf_hex_next:\n" &
+    "  beq t1, zero, .Lpf_hex_write\n" &
+    "  addi t1, t1, -4\n" &
+    "  j .Lpf_hex_loop\n" &
+    ".Lpf_hex_write:\n" &
+    "  li a0, 1\n" &
+    "  addi a1, sp, 96\n" &
+    "  addi a2, t4, 0\n" &
+    "  li a3, 59\n" &
+    "  ecall\n" &
+    "  ret\n" &
     "puts:\n" &
     "  addi sp, sp, -16\n" &
     "  sd ra, 0(sp)\n" &

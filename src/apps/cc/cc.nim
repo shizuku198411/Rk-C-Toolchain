@@ -4,7 +4,8 @@ from user/lib/core/args import UserArgs, argAt, parseUserArgs
 from user/lib/core/io import write
 from user/lib/core/pathutils import PathMax
 from user/lib/core/strutils import cstringEq
-from user/lib/core/syscall import sysExec, sysExit, sysGetPid, sysUnlink, sysWait
+from user/lib/core/syscall import SysOpenRead, sysClose, sysExec, sysExit,
+  sysGetPid, sysOpen, sysReadFd, sysUnlink, sysWait
 
 
 const
@@ -18,6 +19,7 @@ const
   LinkInputCapacity = 8
   StandardLibraryCount = 4
   ChildArgsCapacity = PathMax * (LinkInputCapacity + 3)
+  SourceScanCapacity = 1024
 
 
 type
@@ -40,6 +42,7 @@ var
   options: DriverOptions
   temporaryObject: array[PathMax, char]
   childArgs: array[ChildArgsCapacity, char]
+  sourceScan: array[SourceScanCapacity, char]
 
 
 ## Prints supported compiler driver operations and the initial input policy.
@@ -48,7 +51,7 @@ proc printUsage() =
   write("       cc -S <input.c> -o <output.s>\n")
   write("       cc -c <input.c> -o <output.rko>\n")
   write("       cc -I<dir> <input.c> [input.rko...] -o <output.rkx>\n")
-  write("notes: -I/usr/include enables rkc_* headers and standard libraries\n")
+  write("notes: rkc_* headers are auto-loaded from /usr/include\n")
 
 
 ## Reports a frontend failure and terminates the compiler driver.
@@ -85,6 +88,63 @@ proc endsWith(value, suffix: cstring): bool =
       return false
     inc i
   true
+
+
+## Tests whether one public include directive begins in the source scan buffer.
+proc matchesDirective(pos, size: U32, directive: cstring,
+                      after: var U32): bool =
+  var index = U32(0)
+  while directive[index] != '\0':
+    if pos + index >= size or sourceScan[pos + index] != directive[index]:
+      return false
+    inc index
+  after = pos + index
+  after >= size or sourceScan[after] == '\r' or sourceScan[after] == '\n'
+
+
+## Recognizes initial public standard headers so cc can link their libraries.
+proc sourceUsesStandardHeaders(path: cstring): bool =
+  let fd = sysOpen(path, SysOpenRead)
+  if fd < 0:
+    return false
+
+  let readLen = sysReadFd(
+    fd,
+    addr sourceScan[0],
+    U64(SourceScanCapacity - 1),
+  )
+  discard sysClose(fd)
+  if readLen <= 0:
+    return false
+  let size = U32(readLen)
+  sourceScan[size] = '\0'
+
+  var pos = U32(0)
+  while true:
+    while pos < size and
+        (sourceScan[pos] == ' ' or sourceScan[pos] == '\t' or
+         sourceScan[pos] == '\r' or sourceScan[pos] == '\n'):
+      inc pos
+    var after = U32(0)
+    if matchesDirective(pos, size, cstring("#include <rkc_stdio.h>"), after) or
+        matchesDirective(pos, size, cstring("#include <rkc_stdlib.h>"), after) or
+        matchesDirective(pos, size, cstring("#include <rkc_string.h>"), after) or
+        matchesDirective(pos, size, cstring("#include <rkc_unistd.h>"), after):
+      return true
+    return false
+
+
+## Verifies that automatic standard-library linking still fits the fixed input set.
+proc linkInputCapacityOk(parsed: var DriverOptions): bool =
+  if parsed.mode != DriverLink:
+    return true
+  let compiledInput =
+    if parsed.source != nil: U32(1)
+    else: U32(0)
+  if parsed.useStdlib:
+    return parsed.objectCount + compiledInput + U32(StandardLibraryCount) <=
+      U32(LinkInputCapacity)
+  parsed.objectCount + compiledInput <= U32(LinkInputCapacity)
 
 
 ## Appends one raw child argument fragment to the command buffer.
@@ -200,12 +260,8 @@ proc parseOptions(args: var UserArgs, parsed: var DriverOptions): bool =
     return parsed.source != nil and parsed.objectCount == U32(0)
   if parsed.source != nil and parsed.objectCount >= U32(LinkInputCapacity):
     return false
-  if parsed.useStdlib and
-      parsed.objectCount + U32(StandardLibraryCount) +
-        (if parsed.source != nil: U32(1) else: U32(0)) >
-        U32(LinkInputCapacity):
-    return false
-  parsed.source != nil or parsed.objectCount > U32(0)
+  (parsed.source != nil or parsed.objectCount > U32(0)) and
+    linkInputCapacityOk(parsed)
 
 
 ## Executes one backend command synchronously and reports success to its caller.
@@ -270,6 +326,11 @@ proc user_start*(arg: cstring) {.exportc, cdecl, noreturn.} =
   if not parseOptions(parsedArgs, options):
     printUsage()
     sysExit(1)
+  if options.source != nil and not options.useStdlib and
+      sourceUsesStandardHeaders(options.source):
+    options.useStdlib = true
+    if not linkInputCapacityOk(options):
+      fail(cstring("too many link inputs"))
 
   if options.mode == DriverAssembly or options.mode == DriverObject:
     if not compileOutput(options.mode, options.source, options.output):

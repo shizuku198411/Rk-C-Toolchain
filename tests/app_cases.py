@@ -127,6 +127,8 @@ def toolchain_tests(TestCase):
         "  if (uid == gid) {\n"
         "    puts(\"identity from linked library!\\n\");\n"
         "  }\n"
+        "  char *word = \"toolchain\";\n"
+        "  printf(\"printf values: %d %x %s %c %%\\n\", 123, 255, word, 33);\n"
         "  char *release = \"/etc/os-release\";\n"
         "  int fd = open(release, 1);\n"
         "  char buffer[16];\n"
@@ -325,7 +327,7 @@ def toolchain_tests(TestCase):
         TestCase(
             "boot installs stdio header before login",
             "cat /usr/include/rkc_stdio.h",
-            ["int puts", "int open", "int read", "int write", "int close"],
+            ["int puts", "int printf", "int open", "int read", "int write", "int close"],
         ),
         TestCase(
             "boot installs standard support headers before login",
@@ -356,14 +358,19 @@ def toolchain_tests(TestCase):
             append_newline=False,
         ),
         TestCase(
-            "cc links source against installed standard library",
-            "cc -I/usr/include /home/rkc/src/stdlib_hello.c -o /home/rkc/bin/stdlib_hello",
+            "cc auto-links source with installed standard headers",
+            "cc /home/rkc/src/stdlib_hello.c -o /home/rkc/bin/stdlib_hello",
             ["rkld: created /home/rkc/bin/stdlib_hello", "cc: created /home/rkc/bin/stdlib_hello"],
         ),
         TestCase(
             "execute linked standard library calls",
             "/home/rkc/bin/stdlib_hello",
-            ["hello from split libraries!", "identity from linked library!", 'NAME="Rk-C"'],
+            [
+                "hello from split libraries!",
+                "identity from linked library!",
+                "printf values: 123 ff toolchain ! %",
+                'NAME="Rk-C"',
+            ],
         ),
         TestCase("remove linked standard library image", "rm /home/rkc/bin/stdlib_hello", []),
         TestCase("remove standard header source", "rm /home/rkc/src/stdlib_hello.c", []),

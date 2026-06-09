@@ -1,89 +1,60 @@
 # Rk-C Toolchain
 
-Rk-C Toolchain is the userspace development tool repository for the Rk-C
-operating system. Its goal is to make it possible to write, build, inspect,
-and eventually link programs from inside a running Rk-C environment.
+Rk-C Toolchain provides the hosted development tools for the Rk-C operating
+system. It lets programs be written, assembled, compiled, linked, and inspected
+from inside a running Rk-C environment.
 
-The repository is developed independently from the kernel and integrates with
-an Rk-C checkout through `module.mk`. Toolchain programs use the public RKX
-executable and syscall interfaces supplied by Rk-C; kernel internals do not
-depend on toolchain implementation details.
+The toolchain is kept as a module separate from the kernel. It integrates with
+an Rk-C checkout through `module.mk`, uses the public RKX executable format and
+syscall ABI, and produces normal userspace applications for the Rk-C shell.
 
-## Components
+## What It Provides
 
-| Status | Component | Purpose |
-| --- | --- | --- |
-| Available | `src/apps/rkas` | RV64IM subset assembler emitting RKX or relocatable RKO output |
-| Available | `src/lib/rkx_writer` | Shared validated RKX image writer |
-| Test only | `src/apps/rkxwritecheck` | RKX writer integration and validation utility |
-| Available | `src/apps/rkcc` | Small C-like frontend producing RKX or RKO via `rkas` |
-| Available | `src/lib/libcmini` | Initial builtin libc-mini API lowered by `rkcc` |
-| Available | `src/apps/rkld` | RKO object linker producing runnable RKX applications |
-| Available | `src/lib/rko_format` | Shared RKO1 object-format reader and writer |
-| Available | `src/apps/cc` | Conventional compiler driver coordinating `rkcc` and `rkld` |
-| Available | `src/apps/rkcstdlib` | Root-owned split `rkc_*` headers and `rkc_*.rko` installer |
+| Tool | Purpose |
+| --- | --- |
+| `rkas` | Assemble the supported RV64 subset into RKX executables or RKO objects |
+| `rkcc` | Compile the hosted C-like language into RKX executables, assembly, or RKO objects |
+| `rkld` | Link one or more RKO objects into a runnable RKX executable |
+| `cc` | Drive compile, assemble, object, and link workflows with a familiar frontend |
+| `rkcstdlib` | Install public `rkc_*` headers and split standard-library RKO objects |
+| `rkxwritecheck` | Test-only validation utility for RKX writer behavior |
 
-## Rk-C Integration
+Supporting libraries live under `src/lib/`:
 
-When the repository is present in an Rk-C workspace, the kernel build may
-include `module.mk`. Runtime tools are registered in `RKC_TOOLCHAIN_APP_NAMES`
-and are packed into the ordinary appfs image. Validation utilities are
-registered separately in `RKC_TOOLCHAIN_TEST_APP_NAMES` and appear only in
-test images.
+| Library | Purpose |
+| --- | --- |
+| `rkx_writer` | Validated RKX image writer used by hosted tools |
+| `rko_format` | Shared RKO1 object-format reader and writer |
+| `libcmini` | Small hosted C library surface used by `rkcc` and `rkcstdlib` |
 
-```make
-RKC_TOOLCHAIN_APP_NAMES := rkas rkcc rkld cc rkcstdlib
-RKC_TOOLCHAIN_TEST_APP_NAMES := rkxwritecheck
+## Quick Start
+
+The easiest hosted workflow is to write a C-like source file and build it with
+`cc`:
+
+```sh
+edit /home/rkc/src/hello.c
+cc /home/rkc/src/hello.c -o /home/rkc/bin/hello
+hello
 ```
 
-## Running on Rk-C
+`cc` can also stop after assembly or object generation:
 
-The currently available hosted workflow is:
+```sh
+cc -S /home/rkc/src/hello.c -o /home/rkc/src/hello.s
+cc -c /home/rkc/src/hello.c -o /home/rkc/src/hello.rko
+```
+
+Assembly-only programs can be built directly with `rkas`:
 
 ```sh
 edit /home/rkc/src/hello.s
-
-## write in assembly ##
-.text
-.entry _start
-
-_start:
-  la a0, message
-  li a1, 17
-  li a3, 1
-  ecall
-
-  li a0, 0
-  li a3, 5
-  ecall
-
-.rodata
-message:
-  .asciz "hello from rkas!\n"
-
-.data
-seed:
-  .byte 0x2a
-
-.bss
-scratch:
-  .zero 16
-#######################
-
 rkas /home/rkc/src/hello.s -o /home/rkc/bin/hello
 rkxinfo /home/rkc/bin/hello
 hello
 ```
 
-The hosted C-like workflow is also available:
-
-```sh
-edit /home/rkc/src/hello.c
-rkcc /home/rkc/src/hello.c -o /home/rkc/bin/hello
-hello
-```
-
-Relocatable objects can be linked from one or more modules:
+Relocatable objects can be linked explicitly:
 
 ```sh
 rkas -c /home/rkc/src/start.s -o /home/rkc/src/start.rko
@@ -91,25 +62,85 @@ rkcc -c /home/rkc/src/main.c -o /home/rkc/src/main.rko
 rkld /home/rkc/src/start.rko /home/rkc/src/main.rko -o /home/rkc/bin/app
 ```
 
-Applications can now use the driver frontend without spelling out backend tools:
+## Standard Library
 
-```sh
-cc /home/rkc/src/hello.c -o /home/rkc/bin/hello
-cc -S /home/rkc/src/hello.c -o /home/rkc/src/hello.s
-cc -c /home/rkc/src/hello.c -o /home/rkc/src/hello.rko
-cc /home/rkc/src/hello.rko -o /home/rkc/bin/hello
-```
-
-The installed standard library workflow is:
+`rkcstdlib` installs root-owned public headers under `/usr/include` and
+linkable standard-library objects under `/usr/lib`:
 
 ```sh
 sudo rkcstdlib --install
-edit /home/rkc/src/hello.c
-cc -I/usr/include /home/rkc/src/hello.c -o /home/rkc/bin/hello
 ```
 
-A source beginning with public `#include <rkc_*.h>` directives emits
-linker-resolved calls for the supported libc-mini surface, and
-`cc -I/usr/include` supplies split `rkc_stdio`, `rkc_stdlib`,
-`rkc_string`, and `rkc_unistd` objects. Sources without headers retain
-the early builtin lowering path for compatibility.
+Sources that begin with public `rkc_*` include directives automatically use the
+installed headers and standard libraries:
+
+```c
+#include <rkc_stdio.h>
+#include <rkc_string.h>
+
+int main() {
+  char *message = "hello from stdio\n";
+  write(1, message, strlen(message));
+  printf("bytes=%d\n", strlen(message));
+  return 0;
+}
+```
+
+```sh
+cc /home/rkc/src/hello.c -o /home/rkc/bin/hello
+```
+
+The current public headers are:
+
+| Header | Functions |
+| --- | --- |
+| `<rkc_stdio.h>` | `puts`, `printf`, `open`, `read`, `write`, `close` |
+| `<rkc_stdlib.h>` | `exit` |
+| `<rkc_string.h>` | `strlen` |
+| `<rkc_unistd.h>` | `getuid`, `getgid` |
+
+Sources without public headers keep the older builtin lowering path for
+compatibility.
+
+## Rk-C Integration
+
+When this repository is present at `modules/rkc-toolchain` in an Rk-C
+workspace, the kernel build includes it through `module.mk`.
+
+Runtime tools are packed into the normal appfs image:
+
+```make
+RKC_TOOLCHAIN_APP_NAMES := rkas rkcc rkld cc rkcstdlib
+```
+
+Validation-only tools are packed into test images:
+
+```make
+RKC_TOOLCHAIN_TEST_APP_NAMES := rkxwritecheck
+```
+
+## Documentation
+
+| Topic | Link |
+| --- | --- |
+| Tool applications | [`src/apps/README.md`](src/apps/README.md) |
+| `cc` driver | [`src/apps/cc/README.md`](src/apps/cc/README.md) |
+| `rkcc` language surface | [`src/apps/rkcc/README.md`](src/apps/rkcc/README.md) |
+| Assembler | [`src/apps/rkas/README.md`](src/apps/rkas/README.md) |
+| Linker | [`src/apps/rkld/README.md`](src/apps/rkld/README.md) |
+| Standard-library manual pages | [`docs/README.md`](docs/README.md) |
+| Libraries | [`src/lib/README.md`](src/lib/README.md) |
+| Tests | [`tests/README.md`](tests/README.md) |
+
+## Development
+
+In the parent Rk-C workspace, use the normal Workshop environment:
+
+```sh
+workshop run rkc-dev -- build
+workshop run rkc-dev -- test
+```
+
+The app smoke test suite includes optional toolchain cases that compile,
+assemble, link, install standard-library files, and execute generated RKX
+programs inside QEMU.

@@ -202,7 +202,10 @@ proc loadCallArg*(parser: var Parser, index: I64): CompileStatus =
   let prefix =
     if index == I64(0): cstring("  ld a0, ")
     elif index == I64(1): cstring("  ld a1, ")
-    else: cstring("  ld a2, ")
+    elif index == I64(2): cstring("  ld a2, ")
+    elif index == I64(3): cstring("  ld a3, ")
+    elif index == I64(4): cstring("  ld a4, ")
+    else: cstring("  ld a5, ")
   if not emitNumberLine(parser.text, prefix,
                         I64(CallArgBase) + index * I64(8),
                         cstring("(sp)")):

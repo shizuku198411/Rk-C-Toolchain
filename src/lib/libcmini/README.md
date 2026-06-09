@@ -1,9 +1,9 @@
 # libc-mini
 
 `libc-mini` defines the first small programming surface usable by programs
-built with Rk-C Toolchain. Although RKO objects and `rkld` are now available, a linkable libc object is
-not yet emitted; `rkcc` currently lowers these calls directly to the stable
-Rk-C syscall ABI.
+built with Rk-C Toolchain. Calls can either be lowered directly by `rkcc` for
+the early builtin path or resolved from the split standard library objects
+installed under `/usr/lib`.
 
 ## Builtin Surface
 
@@ -14,6 +14,7 @@ int read(int fd, char *buf, int len);
 int open(const char *path, int flags);
 int close(int fd);
 int puts(const char *s);
+int printf(const char *fmt, ...);
 int strlen(const char *s);
 int getuid(void);
 int getgid(void);
@@ -22,6 +23,10 @@ int getgid(void);
 `char buffer[N]` declares writable stack storage for `read`. `strlen` and
 `puts` currently require a string literal or a `char *` local initialized from
 a string literal, so their byte length remains known during compilation.
+`printf` is available through the linked standard library path and currently
+supports `%s`, `%d`, `%x`, `%c`, and `%%` with up to five value arguments.
+See the hosted standard library manual under [`docs/`](../../../docs/README.md)
+for per-header and per-function pages.
 
 ## Example
 
@@ -34,9 +39,7 @@ int main() {
   int count = read(fd, buffer, 12);
   close(fd);
   write(1, buffer, count);
+  printf("read %d bytes from %s\n", count, "/etc/os-release");
   return 0;
 }
 ```
-
-The future object/linker phase will move these builtins behind a linkable
-`librkc` implementation without changing the application-facing API.

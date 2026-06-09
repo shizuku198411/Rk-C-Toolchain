@@ -53,12 +53,30 @@ proc parsePointerArgument(parser: var Parser, writableOnly: bool,
   CcOk
 
 
-## Parses a libc-mini builtin call whose opening parenthesis is current.
-proc parseBuiltinCall*(parser: var Parser, identifier: var Token): CompileStatus
-
-
 ## Emits a full integer expression through bitwise-or precedence.
 proc parseExpression*(parser: var Parser): CompileStatus
+
+
+## Parses a printf-style value argument as either a pointer or integer value.
+proc parsePrintfValueArgument(parser: var Parser): CompileStatus =
+  var
+    length = U32(0)
+    knownLength = false
+
+  if parser.current.kind == TokenString:
+    return parser.parsePointerArgument(false, length, knownLength)
+
+  if parser.current.kind == TokenIdentifier:
+    var index = U32(0)
+    if parser.lookupLocal(parser.current, index) and
+        parser.locals[index].kind != LocalInt:
+      return parser.parsePointerArgument(false, length, knownLength)
+
+  parser.parseExpression()
+
+
+## Parses a libc-mini builtin call whose opening parenthesis is current.
+proc parseBuiltinCall*(parser: var Parser, identifier: var Token): CompileStatus
 
 
 ## Emits a primary integer expression into a0.
@@ -380,6 +398,44 @@ proc parseBuiltinCall*(parser: var Parser, identifier: var Token): CompileStatus
     if not emitNumberLine(parser.text, cstring("  li a2, "), I64(length)):
       return CcOutputTooLarge
     return parser.emitSyscall(I64(SysWriteFd))
+
+  if identifier.tokenIsName(cstring("printf")):
+    if not parser.useStdlib:
+      return CcUnsupported
+    status = parser.parsePointerArgument(false, length, knownLength)
+    if status != CcOk:
+      return status
+    status = parser.storeCallArg(I64(0))
+    if status != CcOk:
+      return status
+
+    var argIndex = I64(1)
+    while parser.current.kind == TokenComma:
+      if argIndex > I64(5):
+        return CcUnsupported
+      status = parser.advance()
+      if status != CcOk:
+        return status
+      status = parser.parsePrintfValueArgument()
+      if status != CcOk:
+        return status
+      status = parser.storeCallArg(argIndex)
+      if status != CcOk:
+        return status
+      inc argIndex
+
+    status = parser.expect(TokenRightParen)
+    if status != CcOk:
+      return status
+
+    var loadIndex = I64(0)
+    while loadIndex < argIndex:
+      status = parser.loadCallArg(loadIndex)
+      if status != CcOk:
+        return status
+      inc loadIndex
+
+    return parser.emitCall(cstring("printf"))
 
   if identifier.tokenIsName(cstring("strlen")):
     status = parser.parsePointerArgument(false, length, knownLength)
